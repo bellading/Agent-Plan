@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     remind_at TEXT,
     snooze_until TEXT,
     deadline TEXT,
+    notified_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );

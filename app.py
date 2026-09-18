@@ -5,7 +5,7 @@ from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
 
-from db.init_db import DB_PATH, init_db
+from db.init_db import DB_PATH, get_conn, init_db
 
 app = Flask(__name__)
 
@@ -13,12 +13,6 @@ EDITABLE_FIELDS = {
     "title", "notes", "category", "importance", "urgency",
     "action", "status", "remind_at", "deadline",
 }
-
-
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 @app.route("/")

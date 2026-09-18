@@ -42,14 +42,33 @@
 | status | todo / doing / done / missed / routine / dropped |
 | remind_at · snooze_until | 提醒时间 / 贪睡到点 |
 
+## 本地运行
+
+```
+pip install -r requirements.txt
+python3 app.py          # 网页表格页：http://127.0.0.1:5000
+python3 scheduler.py    # 提醒调度器，另开一个终端常驻运行
+```
+
+网页只负责查看和编辑，不推送提醒；调度器要一直运行，到点才会真的推消息，所以长期用需要把它放到一台常开的机器上（自己电脑合盖/关机时不会提醒）。
+
+### 配置提醒推送（Server酱）
+
+1. 打开 https://sct.ftqq.com/ ，用微信扫码绑定，拿到一个 `SCT...` 开头的 SendKey
+2. 二选一保存：
+   - `export SERVERCHAN_SENDKEY=SCT...`（每次开终端要重新设置）
+   - 或存到 `.secrets/serverchan_sendkey.txt`（已加入 .gitignore，不会被提交，重启后依然有效）
+3. 不配置时调度器只会在终端打印"本该发送"的内容，不会报错，方便先跑通逻辑再接真实推送
+
 ## Roadmap
 
 - [x] 数据模型 & 分诊 prompt
+- [x] 表格页（可编辑 + 新建任务）
+- [x] 调度器 & 提醒闭环（Server酱推送到微信）
 - [ ] Bot：录入 → 分诊 → 存储闭环
-- [ ] 调度器 & 提醒闭环
-- [ ] 表格页
 - [ ] 每日早晚心跳（清单 + 复盘）
-- [ ] v2：多用户、目标型任务拆成循环提醒、微信侧推送
+- [ ] 部署到常开的服务器，调度器脱离本地电脑运行
+- [ ] v2：多用户、目标型任务拆成循环提醒
 
 ## 状态
 

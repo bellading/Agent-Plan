@@ -10,6 +10,12 @@ SCHEMA_PATH = DB_DIR / "schema.sql"
 SEED_PATH = DB_DIR / "seed.sql"
 
 
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def init_db(reset: bool = False, seed: bool = True) -> None:
     if reset and DB_PATH.exists():
         DB_PATH.unlink()
