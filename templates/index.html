@@ -7,16 +7,33 @@
 <style>
   body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 2rem; background: #fafafa; color: #222; }
   h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin: 2rem 0 0.5rem; }
   table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-  th, td { border: 1px solid #ececec; padding: 8px 10px; text-align: left; font-size: 13px; vertical-align: top; }
+  th, td { border: 1px solid #ececec; padding: 6px 8px; text-align: left; font-size: 13px; vertical-align: top; }
   th { background: #f5f5f5; }
-  tr.done td { opacity: 0.5; text-decoration: line-through; }
-  .badge { padding: 2px 7px; border-radius: 4px; font-size: 12px; white-space: nowrap; }
-  .high { background: #ffe1e1; color: #a33; }
-  .med { background: #fff2cc; color: #96700a; }
-  .low { background: #e3f3e6; color: #2a7d3c; }
-  .notes-cell { max-width: 320px; white-space: pre-wrap; font-size: 12px; color: #555; }
-  select { font-size: 12px; }
+  tr.done td { opacity: 0.5; }
+  tr.done .field-input, tr.done .field-textarea { text-decoration: line-through; }
+  .field-input, .field-select, .field-textarea {
+    width: 100%; box-sizing: border-box; border: 1px solid transparent; background: transparent;
+    font-size: 13px; font-family: inherit; padding: 2px 4px; border-radius: 3px;
+  }
+  .field-input:hover, .field-select:hover, .field-textarea:hover,
+  .field-input:focus, .field-select:focus, .field-textarea:focus {
+    border-color: #d5d5d5; background: #fcfcfc;
+  }
+  .field-textarea { resize: vertical; min-height: 2.4em; }
+  select.high { background-color: #ffe1e1; }
+  select.med { background-color: #fff2cc; }
+  select.low { background-color: #e3f3e6; }
+  .new-task-form { background: white; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .new-task-form .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .new-task-form input, .new-task-form select, .new-task-form textarea {
+    padding: 6px 8px; font-size: 13px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit;
+  }
+  .new-task-form input[type=text] { flex: 1; min-width: 140px; }
+  .new-task-form textarea { width: 100%; min-height: 3em; }
+  .new-task-form button { padding: 6px 16px; border: none; border-radius: 4px; background: #333; color: white; cursor: pointer; }
+  .new-task-form button:hover { background: #111; }
 </style>
 </head>
 <body>
@@ -24,19 +41,54 @@
 <table>
   <thead>
     <tr>
-      <th>完成</th><th>主题</th><th>分类</th><th>重要</th><th>紧急</th>
-      <th>动作</th><th>状态</th><th>提醒时间</th><th>截止</th><th>备注</th>
+      <th style="width:36px">完成</th><th>主题</th><th>分类</th><th style="width:80px">重要</th>
+      <th style="width:80px">紧急</th><th style="width:90px">动作</th><th style="width:90px">状态</th>
+      <th style="width:130px">提醒时间</th><th style="width:130px">截止</th><th style="width:260px">备注</th>
     </tr>
   </thead>
   <tbody id="task-body"></tbody>
 </table>
 
+<div class="new-task-form">
+  <h2>新建任务</h2>
+  <div class="row">
+    <input id="new-title" type="text" placeholder="主题（必填）">
+    <input id="new-category" type="text" placeholder="分类">
+    <select id="new-type">
+      <option value="single">single</option>
+      <option value="goal">goal</option>
+    </select>
+  </div>
+  <div class="row">
+    <select id="new-importance"><option value="">重要度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
+    <select id="new-urgency"><option value="">紧急度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
+    <select id="new-action"><option value="">动作</option><option value="now">now</option><option value="schedule">schedule</option><option value="routine">routine</option><option value="drop">drop</option></select>
+    <input id="new-remind_at" type="text" placeholder="提醒时间 如 2026-09-20 09:00">
+    <input id="new-deadline" type="text" placeholder="截止 如 2026-09-20 00:00">
+  </div>
+  <div class="row">
+    <textarea id="new-notes" placeholder="备注 / 计划"></textarea>
+  </div>
+  <button id="add-task-btn">添加</button>
+</div>
+
 <script>
+const LEVELS = ['', 'high', 'med', 'low'];
+const ACTIONS = ['', 'now', 'schedule', 'routine', 'drop'];
 const STATUSES = ['todo', 'doing', 'done', 'missed', 'routine', 'dropped'];
 
-function badge(level) {
-  if (!level) return '';
-  return `<span class="badge ${level}">${level}</span>`;
+function esc(v) {
+  return (v ?? '').toString()
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+
+function options(values, current) {
+  return values.map(v => `<option value="${v}" ${v === (current ?? '') ? 'selected' : ''}>${v || '—'}</option>`).join('');
+}
+
+function levelSelect(field, current) {
+  return `<select class="field-select ${current ?? ''}" data-field="${field}">${options(LEVELS, current)}</select>`;
 }
 
 async function loadTasks() {
@@ -47,43 +99,89 @@ async function loadTasks() {
 
   for (const t of tasks) {
     const tr = document.createElement('tr');
+    tr.dataset.id = t.id;
     if (t.status === 'done') tr.classList.add('done');
 
-    const statusOptions = STATUSES
-      .map(s => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s}</option>`)
-      .join('');
-
     tr.innerHTML = `
-      <td><input type="checkbox" class="done-check" data-id="${t.id}" ${t.status === 'done' ? 'checked' : ''}></td>
-      <td>${t.title ?? ''}</td>
-      <td>${t.category ?? ''}</td>
-      <td>${badge(t.importance)}</td>
-      <td>${badge(t.urgency)}</td>
-      <td>${t.action ?? ''}</td>
-      <td><select class="status-select" data-id="${t.id}">${statusOptions}</select></td>
-      <td>${t.remind_at ?? ''}</td>
-      <td>${t.deadline ?? ''}</td>
-      <td class="notes-cell">${t.notes ?? ''}</td>
+      <td><input type="checkbox" class="done-check" ${t.status === 'done' ? 'checked' : ''}></td>
+      <td><input type="text" class="field-input" data-field="title" value="${esc(t.title)}"></td>
+      <td><input type="text" class="field-input" data-field="category" value="${esc(t.category)}"></td>
+      <td>${levelSelect('importance', t.importance)}</td>
+      <td>${levelSelect('urgency', t.urgency)}</td>
+      <td><select class="field-select" data-field="action">${options(ACTIONS, t.action)}</select></td>
+      <td><select class="field-select" data-field="status">${options(STATUSES, t.status)}</select></td>
+      <td><input type="text" class="field-input" data-field="remind_at" value="${esc(t.remind_at)}"></td>
+      <td><input type="text" class="field-input" data-field="deadline" value="${esc(t.deadline)}"></td>
+      <td><textarea class="field-textarea" data-field="notes">${esc(t.notes)}</textarea></td>
     `;
     body.appendChild(tr);
   }
-
-  document.querySelectorAll('.done-check').forEach(cb => {
-    cb.addEventListener('change', e => patchTask(e.target.dataset.id, { status: e.target.checked ? 'done' : 'todo' }));
-  });
-  document.querySelectorAll('.status-select').forEach(sel => {
-    sel.addEventListener('change', e => patchTask(e.target.dataset.id, { status: e.target.value }));
-  });
 }
 
 async function patchTask(id, fields) {
-  await fetch(`/api/tasks/${id}`, {
+  const res = await fetch(`/api/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fields),
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || '保存失败');
+  }
   loadTasks();
 }
+
+document.getElementById('task-body').addEventListener('change', e => {
+  const el = e.target;
+  const id = el.closest('tr')?.dataset.id;
+  if (!id) return;
+  if (el.classList.contains('done-check')) {
+    patchTask(id, { status: el.checked ? 'done' : 'todo' });
+  } else if (el.classList.contains('field-select')) {
+    el.className = `field-select ${el.dataset.field === 'importance' || el.dataset.field === 'urgency' ? el.value : ''}`.trim();
+    patchTask(id, { [el.dataset.field]: el.value || null });
+  }
+});
+
+document.getElementById('task-body').addEventListener('focusout', e => {
+  const el = e.target;
+  if (!(el.classList.contains('field-input') || el.classList.contains('field-textarea'))) return;
+  const id = el.closest('tr')?.dataset.id;
+  if (!id) return;
+  patchTask(id, { [el.dataset.field]: el.value });
+});
+
+document.getElementById('add-task-btn').addEventListener('click', async () => {
+  const title = document.getElementById('new-title').value.trim();
+  if (!title) { alert('主题不能为空'); return; }
+
+  const payload = {
+    title,
+    category: document.getElementById('new-category').value,
+    type: document.getElementById('new-type').value,
+    importance: document.getElementById('new-importance').value || null,
+    urgency: document.getElementById('new-urgency').value || null,
+    action: document.getElementById('new-action').value || null,
+    remind_at: document.getElementById('new-remind_at').value || null,
+    deadline: document.getElementById('new-deadline').value || null,
+    notes: document.getElementById('new-notes').value,
+  };
+
+  const res = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (res.ok) {
+    ['new-title', 'new-category', 'new-remind_at', 'new-deadline', 'new-notes'].forEach(id => document.getElementById(id).value = '');
+    ['new-importance', 'new-urgency', 'new-action'].forEach(id => document.getElementById(id).value = '');
+    loadTasks();
+  } else {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || '添加失败');
+  }
+});
 
 loadTasks();
 </script>

@@ -36,6 +36,44 @@ def list_tasks():
     return jsonify([dict(row) for row in rows])
 
 
+@app.route("/api/tasks", methods=["POST"])
+def create_task():
+    data = request.get_json(force=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "title is required"}), 400
+
+    task_type = data.get("type") or "single"
+    if task_type not in ("single", "goal"):
+        return jsonify({"error": "type must be 'single' or 'goal'"}), 400
+
+    fields = {
+        "title": title,
+        "notes": data.get("notes") or "",
+        "category": data.get("category") or "",
+        "type": task_type,
+        "importance": data.get("importance") or None,
+        "urgency": data.get("urgency") or None,
+        "action": data.get("action") or None,
+        "remind_at": data.get("remind_at") or None,
+        "deadline": data.get("deadline") or None,
+    }
+    columns = ", ".join(fields)
+    placeholders = ", ".join("?" for _ in fields)
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            f"INSERT INTO tasks ({columns}) VALUES ({placeholders})", list(fields.values())
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+    except sqlite3.IntegrityError as exc:
+        return jsonify({"error": str(exc)}), 400
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "id": new_id}), 201
+
+
 @app.route("/api/tasks/<int:task_id>", methods=["PATCH"])
 def update_task(task_id):
     data = request.get_json(force=True) or {}
@@ -50,9 +88,13 @@ def update_task(task_id):
 
     set_clause = ", ".join(f"{k} = ?" for k in fields)
     conn = get_conn()
-    conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", [*fields.values(), task_id])
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", [*fields.values(), task_id])
+        conn.commit()
+    except sqlite3.IntegrityError as exc:
+        return jsonify({"error": str(exc)}), 400
+    finally:
+        conn.close()
     return jsonify({"ok": True})
 
 
