@@ -5,6 +5,7 @@ from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
 
+import llm
 from db.init_db import DB_PATH, get_conn, init_db
 
 app = Flask(__name__)
@@ -13,6 +14,16 @@ EDITABLE_FIELDS = {
     "title", "notes", "category", "importance", "urgency",
     "action", "status", "remind_at", "deadline",
 }
+
+
+def _insert_task(conn, fields: dict) -> int:
+    columns = ", ".join(fields)
+    placeholders = ", ".join("?" for _ in fields)
+    cur = conn.execute(
+        f"INSERT INTO tasks ({columns}) VALUES ({placeholders})", list(fields.values())
+    )
+    conn.commit()
+    return cur.lastrowid
 
 
 @app.route("/")
@@ -52,20 +63,56 @@ def create_task():
         "remind_at": data.get("remind_at") or None,
         "deadline": data.get("deadline") or None,
     }
-    columns = ", ".join(fields)
-    placeholders = ", ".join("?" for _ in fields)
     conn = get_conn()
     try:
-        cur = conn.execute(
-            f"INSERT INTO tasks ({columns}) VALUES ({placeholders})", list(fields.values())
-        )
-        conn.commit()
-        new_id = cur.lastrowid
+        new_id = _insert_task(conn, fields)
     except sqlite3.IntegrityError as exc:
         return jsonify({"error": str(exc)}), 400
     finally:
         conn.close()
     return jsonify({"ok": True, "id": new_id}), 201
+
+
+@app.route("/api/quick-add", methods=["POST"])
+def quick_add():
+    """Bot-style intake: one line of text in, AI-triaged task out."""
+    data = request.get_json(force=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text is required"}), 400
+
+    conn = get_conn()
+    try:
+        context = llm.get_user_context(conn)
+        result = llm.triage(text, context)
+    except Exception as exc:
+        conn.close()
+        return jsonify({"error": str(exc)}), 502
+
+    fields = {
+        "title": result["title"],
+        "notes": result["notes"],
+        "category": result["category"],
+        "type": result["type"],
+        "importance": result["importance"],
+        "urgency": result["urgency"],
+        "action": result["action"],
+        "remind_at": None,
+        "deadline": None,
+    }
+    try:
+        new_id = _insert_task(conn, fields)
+    except sqlite3.IntegrityError as exc:
+        conn.close()
+        return jsonify({"error": str(exc)}), 400
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "id": new_id,
+        "needs_ask": result["needs_ask"],
+        "reasoning": result["reasoning"],
+    }), 201
 
 
 @app.route("/api/tasks/<int:task_id>", methods=["PATCH"])
