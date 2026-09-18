@@ -14,7 +14,9 @@ INSERT INTO tasks (
  '2026-09-18 19:00', '2026-09-20 00:00'),
 
 ('bella', 'SQL 熟练度练习计划（一周内达到数据分析师面试水平）',
-'7天冲刺计划：
+'执行时间：每天下午 14:00-17:00
+
+7天冲刺计划：
 Day1 (9/18) 基础语法：SELECT/WHERE/ORDER BY/DISTINCT/聚合函数(COUNT/SUM/AVG/MAX/MIN)/GROUP BY/HAVING。练习：LeetCode SQL Easy 10题
 Day2 (9/19) JOIN全家桶：INNER/LEFT/RIGHT/FULL/SELF JOIN，多表关联逻辑。练习：Medium关联类 8题
 Day3 (9/20) 子查询、CTE(WITH)、EXISTS/IN对比。练习：8题
@@ -26,4 +28,4 @@ Day7 (9/24) 查漏补缺 + 高频面试题速查表整理 + 白板口述思路�
 资源：LeetCode SQL题库、SQLZoo、牛客网数据分析SQL真题（更贴近国内面试）',
  '工作学习', 'goal',
  'high', 'med', 'routine', 'routine',
- '2026-09-18 20:00', '2026-09-24 00:00');
+ '2026-09-18 14:00', '2026-09-24 00:00');

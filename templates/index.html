@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentPlan</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 2rem; background: #fafafa; color: #222; }
+  h1 { font-size: 20px; }
+  table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { border: 1px solid #ececec; padding: 8px 10px; text-align: left; font-size: 13px; vertical-align: top; }
+  th { background: #f5f5f5; }
+  tr.done td { opacity: 0.5; text-decoration: line-through; }
+  .badge { padding: 2px 7px; border-radius: 4px; font-size: 12px; white-space: nowrap; }
+  .high { background: #ffe1e1; color: #a33; }
+  .med { background: #fff2cc; color: #96700a; }
+  .low { background: #e3f3e6; color: #2a7d3c; }
+  .notes-cell { max-width: 320px; white-space: pre-wrap; font-size: 12px; color: #555; }
+  select { font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>AgentPlan · 任务表</h1>
+<table>
+  <thead>
+    <tr>
+      <th>完成</th><th>主题</th><th>分类</th><th>重要</th><th>紧急</th>
+      <th>动作</th><th>状态</th><th>提醒时间</th><th>截止</th><th>备注</th>
+    </tr>
+  </thead>
+  <tbody id="task-body"></tbody>
+</table>
+
+<script>
+const STATUSES = ['todo', 'doing', 'done', 'missed', 'routine', 'dropped'];
+
+function badge(level) {
+  if (!level) return '';
+  return `<span class="badge ${level}">${level}</span>`;
+}
+
+async function loadTasks() {
+  const res = await fetch('/api/tasks');
+  const tasks = await res.json();
+  const body = document.getElementById('task-body');
+  body.innerHTML = '';
+
+  for (const t of tasks) {
+    const tr = document.createElement('tr');
+    if (t.status === 'done') tr.classList.add('done');
+
+    const statusOptions = STATUSES
+      .map(s => `<option value="${s}" ${s === t.status ? 'selected' : ''}>${s}</option>`)
+      .join('');
+
+    tr.innerHTML = `
+      <td><input type="checkbox" class="done-check" data-id="${t.id}" ${t.status === 'done' ? 'checked' : ''}></td>
+      <td>${t.title ?? ''}</td>
+      <td>${t.category ?? ''}</td>
+      <td>${badge(t.importance)}</td>
+      <td>${badge(t.urgency)}</td>
+      <td>${t.action ?? ''}</td>
+      <td><select class="status-select" data-id="${t.id}">${statusOptions}</select></td>
+      <td>${t.remind_at ?? ''}</td>
+      <td>${t.deadline ?? ''}</td>
+      <td class="notes-cell">${t.notes ?? ''}</td>
+    `;
+    body.appendChild(tr);
+  }
+
+  document.querySelectorAll('.done-check').forEach(cb => {
+    cb.addEventListener('change', e => patchTask(e.target.dataset.id, { status: e.target.checked ? 'done' : 'todo' }));
+  });
+  document.querySelectorAll('.status-select').forEach(sel => {
+    sel.addEventListener('change', e => patchTask(e.target.dataset.id, { status: e.target.value }));
+  });
+}
+
+async function patchTask(id, fields) {
+  await fetch(`/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  loadTasks();
+}
+
+loadTasks();
+</script>
+</body>
+</html>
