@@ -44,8 +44,23 @@
 
 ## 本地运行
 
+首次设置（只需一次）：
+
 ```
+git clone https://github.com/bellading/Agent-Plan.git
+cd Agent-Plan
+git checkout claude/great-turing-mjkh2v
 pip install -r requirements.txt
+```
+
+日常打开，双击对应脚本即可（网页 + 调度器一起启动，并自动打开浏览器）：
+
+- macOS：双击 `start_mac.command`（首次双击如果提示"无法打开"，右键选"打开"确认一次即可）
+- Windows：双击 `start_windows.bat`
+
+不想用脚本、想自己在终端里跑也可以：
+
+```
 python3 app.py          # 网页表格页：http://127.0.0.1:5000
 python3 scheduler.py    # 提醒调度器，另开一个终端常驻运行
 ```
