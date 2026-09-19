@@ -26,11 +26,11 @@ def init_db(reset: bool = False, seed: bool = True) -> None:
 
     conn = sqlite3.connect(DB_PATH)
     try:
-        conn.executescript(SCHEMA_PATH.read_text())
+        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         if seed:
             row_count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             if row_count == 0:
-                conn.executescript(SEED_PATH.read_text())
+                conn.executescript(SEED_PATH.read_text(encoding="utf-8"))
         conn.commit()
     finally:
         conn.close()

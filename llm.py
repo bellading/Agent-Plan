@@ -28,7 +28,7 @@ def _api_key() -> str | None:
     if env_key:
         return env_key
     if SECRET_FILE.exists():
-        return SECRET_FILE.read_text().strip()
+        return SECRET_FILE.read_text(encoding="utf-8").strip()
     return None
 
 
