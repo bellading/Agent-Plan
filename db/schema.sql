@@ -26,3 +26,12 @@ CREATE TABLE IF NOT EXISTS user_profile (
     focus TEXT,
     availability TEXT
 );
+
+-- AI问答 conversation history, so the chat view survives a page reload.
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL DEFAULT 'bella',
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

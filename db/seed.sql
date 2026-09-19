@@ -5,11 +5,11 @@ INSERT INTO tasks (
     importance, urgency, action, status,
     remind_at, deadline
 ) VALUES
-('bella', '投递虾皮·风险策略分析师', '', '工作学习', 'single',
+('bella', '投递虾皮·风险策略分析师', '', '工作', 'single',
  'high', 'high', 'now', 'todo',
  '2026-09-18 19:00', '2026-09-20 00:00'),
 
-('bella', '投递国泰君安·交易风控岗', '', '工作学习', 'single',
+('bella', '投递国泰君安·交易风控岗', '', '工作', 'single',
  'high', 'high', 'now', 'todo',
  '2026-09-18 19:00', '2026-09-20 00:00'),
 
@@ -26,6 +26,6 @@ Day6 (9/23) 综合模拟测试：限时90分钟一套完整面试SQL卷 + 复盘
 Day7 (9/24) 查漏补缺 + 高频面试题速查表整理 + 白板口述思路演练
 
 资源：LeetCode SQL题库、SQLZoo、牛客网数据分析SQL真题（更贴近国内面试）',
- '工作学习', 'goal',
+ '学习', 'goal',
  'high', 'med', 'routine', 'routine',
  '2026-09-18 14:00', '2026-09-24 00:00');
