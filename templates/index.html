@@ -190,12 +190,12 @@
         <h2>新建任务</h2>
         <div class="row">
           <input id="new-title" type="text" placeholder="主题（必填）">
-          <select id="new-type"><option value="single">single</option><option value="goal">goal</option></select>
+          <select id="new-type"><option value="single">单次</option><option value="goal">目标</option></select>
         </div>
         <div class="row">
-          <select id="new-importance"><option value="">重要度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
-          <select id="new-urgency"><option value="">紧急度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
-          <select id="new-action"><option value="">动作</option><option value="now">now</option><option value="schedule">schedule</option><option value="routine">routine</option><option value="drop">drop</option></select>
+          <select id="new-importance"><option value="">重要度</option><option value="high">高</option><option value="med">中</option><option value="low">低</option></select>
+          <select id="new-urgency"><option value="">紧急度</option><option value="high">高</option><option value="med">中</option><option value="low">低</option></select>
+          <select id="new-action"><option value="">动作</option><option value="now">立即</option><option value="schedule">排期</option><option value="routine">日常</option><option value="drop">舍弃</option></select>
           <input id="new-remind_at" type="text" class="datetime" placeholder="提醒 2026-09-20 09:00">
           <input id="new-deadline" type="text" class="datetime" placeholder="截止 2026-09-20 00:00">
         </div>
@@ -235,6 +235,10 @@
 const LEVELS = ['', 'high', 'med', 'low'];
 const ACTIONS = ['', 'now', 'schedule', 'routine', 'drop'];
 const STATUSES = ['todo', 'doing', 'done', 'missed', 'routine', 'dropped'];
+
+const LEVEL_LABELS = { '': '未设置', high: '高', med: '中', low: '低' };
+const ACTION_LABELS = { '': '未设置', now: '立即', schedule: '排期', routine: '日常', drop: '舍弃' };
+const STATUS_LABELS = { todo: '待办', doing: '进行中', done: '已完成', missed: '错过', routine: '日常', dropped: '已舍弃' };
 
 let knownCategories = [];
 let currentCategory = null;
@@ -323,8 +327,11 @@ function esc(v) {
     .replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
-function options(values, current, labelForBlank) {
-  return values.map(v => `<option value="${esc(v)}" ${v === (current ?? '') ? 'selected' : ''}>${v || (labelForBlank ?? '—')}</option>`).join('');
+function options(values, current, labels) {
+  return values.map(v => {
+    const label = labels ? (labels[v] ?? v) : (v || '—');
+    return `<option value="${esc(v)}" ${v === (current ?? '') ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
 }
 
 function effectiveCategory(cat) {
@@ -417,10 +424,10 @@ function renderTaskCard(t) {
     <div class="card-details">
       <div class="card-row">
         <select class="cat-select" data-field="category">${options(knownCategories, effectiveCategory(t.category))}</select>
-        <select class="lvl-select ${t.importance ?? ''}" data-field="importance">${options(LEVELS, t.importance)}</select>
-        <select class="lvl-select ${t.urgency ?? ''}" data-field="urgency">${options(LEVELS, t.urgency)}</select>
-        <select data-field="action">${options(ACTIONS, t.action)}</select>
-        <select data-field="status">${options(STATUSES, t.status, t.status)}</select>
+        <select class="lvl-select ${t.importance ?? ''}" data-field="importance">${options(LEVELS, t.importance, LEVEL_LABELS)}</select>
+        <select class="lvl-select ${t.urgency ?? ''}" data-field="urgency">${options(LEVELS, t.urgency, LEVEL_LABELS)}</select>
+        <select data-field="action">${options(ACTIONS, t.action, ACTION_LABELS)}</select>
+        <select data-field="status">${options(STATUSES, t.status, STATUS_LABELS)}</select>
       </div>
       <div class="card-row">
         <input type="text" class="datetime" data-field="remind_at" placeholder="提醒时间" value="${esc(t.remind_at)}">
