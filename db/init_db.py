@@ -17,6 +17,10 @@ def get_conn() -> sqlite3.Connection:
 
 
 def init_db(reset: bool = False, seed: bool = True) -> None:
+    """Create the schema and, only on a genuinely empty tasks table, load the
+    seed data. Safe to call on every startup: never re-runs seed.sql (which
+    isn't idempotent) against a database that already has real tasks in it.
+    """
     if reset and DB_PATH.exists():
         DB_PATH.unlink()
 
@@ -24,7 +28,9 @@ def init_db(reset: bool = False, seed: bool = True) -> None:
     try:
         conn.executescript(SCHEMA_PATH.read_text())
         if seed:
-            conn.executescript(SEED_PATH.read_text())
+            row_count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            if row_count == 0:
+                conn.executescript(SEED_PATH.read_text())
         conn.commit()
     finally:
         conn.close()

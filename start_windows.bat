@@ -2,6 +2,9 @@
 REM Double-click this file on Windows to start AgentPlan (web page + reminder scheduler).
 cd /d "%~dp0"
 
+echo Setting up database (first run only)...
+python db\init_db.py
+
 echo Starting reminder scheduler...
 start "AgentPlan Scheduler" cmd /k python scheduler.py
 

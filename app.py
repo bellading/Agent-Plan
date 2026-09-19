@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import Flask, jsonify, render_template, request
 
 import llm
-from db.init_db import DB_PATH, get_conn, init_db
+from db.init_db import get_conn, init_db
 
 app = Flask(__name__)
 
@@ -140,6 +140,5 @@ def update_task(task_id):
 
 
 if __name__ == "__main__":
-    if not DB_PATH.exists():
-        init_db(seed=True)
+    init_db(seed=True)
     app.run(debug=True, port=5000)

@@ -2,6 +2,9 @@
 # Double-click this file on macOS to start AgentPlan (web page + reminder scheduler).
 cd "$(dirname "$0")"
 
+echo "Setting up database (first run only)..."
+python3 db/init_db.py
+
 echo "Starting reminder scheduler..."
 python3 scheduler.py &
 SCHEDULER_PID=$!

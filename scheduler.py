@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from db.init_db import get_conn
+from db.init_db import get_conn, init_db
 from notifier import send_wechat
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -68,6 +68,7 @@ def tick() -> int:
 
 
 if __name__ == "__main__":
+    init_db(seed=True)
     print(f"AgentPlan scheduler started, polling every {POLL_INTERVAL_SECONDS}s (Ctrl+C to stop)")
     while True:
         try:
