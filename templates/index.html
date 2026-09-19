@@ -45,6 +45,19 @@
   .new-task-form textarea { width: 100%; min-height: 3em; }
   .new-task-form button { padding: 6px 16px; border: none; border-radius: 4px; background: #333; color: white; cursor: pointer; }
   .new-task-form button:hover { background: #111; }
+
+  dialog#app-dialog {
+    border: none; border-radius: 10px; padding: 0; max-width: 380px; width: 90%;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+  }
+  dialog#app-dialog::backdrop { background: rgba(0,0,0,0.35); }
+  dialog#app-dialog .dialog-body { padding: 20px 22px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+  dialog#app-dialog .dialog-actions { display: flex; justify-content: flex-end; padding: 0 22px 18px; }
+  dialog#app-dialog button {
+    padding: 8px 20px; border: none; border-radius: 6px; background: #2a6df5;
+    color: white; cursor: pointer; font-size: 13px;
+  }
+  dialog#app-dialog button:hover { background: #1d5adb; }
 </style>
 </head>
 <body>
@@ -89,7 +102,21 @@
   <button id="add-task-btn">添加</button>
 </div>
 
+<dialog id="app-dialog">
+  <div class="dialog-body" id="app-dialog-body"></div>
+  <div class="dialog-actions"><button id="app-dialog-ok">好的</button></div>
+</dialog>
+
 <script>
+const dialog = document.getElementById('app-dialog');
+document.getElementById('app-dialog-ok').addEventListener('click', () => dialog.close());
+dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
+
+function showDialog(message) {
+  document.getElementById('app-dialog-body').textContent = message;
+  dialog.showModal();
+}
+
 const LEVELS = ['', 'high', 'med', 'low'];
 const ACTIONS = ['', 'now', 'schedule', 'routine', 'drop'];
 const STATUSES = ['todo', 'doing', 'done', 'missed', 'routine', 'dropped'];
@@ -143,7 +170,7 @@ async function patchTask(id, fields) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || '保存失败');
+    showDialog(err.error || '保存失败');
   }
   loadTasks();
 }
@@ -170,7 +197,7 @@ document.getElementById('task-body').addEventListener('focusout', e => {
 
 document.getElementById('add-task-btn').addEventListener('click', async () => {
   const title = document.getElementById('new-title').value.trim();
-  if (!title) { alert('主题不能为空'); return; }
+  if (!title) { showDialog('主题不能为空'); return; }
 
   const payload = {
     title,
@@ -196,7 +223,7 @@ document.getElementById('add-task-btn').addEventListener('click', async () => {
     loadTasks();
   } else {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || '添加失败');
+    showDialog(err.error || '添加失败');
   }
 });
 
@@ -216,12 +243,12 @@ async function submitQuickAdd() {
     });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || '记录失败');
+      showDialog(data.error || '记录失败');
       return;
     }
     input.value = '';
     if (data.needs_ask) {
-      alert(`已记录，但还有一件事要确认：\n${data.needs_ask}\n（可以直接在表格里改提醒时间/截止日期）`);
+      showDialog(`已记录，但还有一件事要确认：\n\n${data.needs_ask}\n\n（可以直接在表格里改提醒时间/截止日期）`);
     }
     loadTasks();
   } finally {
