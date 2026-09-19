@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 import llm
 import tasks_repo
@@ -108,6 +108,11 @@ def chat():
     if not text:
         return jsonify({"error": "text is required"}), 400
 
+    if not llm.has_api_key():
+        return jsonify({
+            "error": "DASHSCOPE_API_KEY not configured (env var or .secrets/qwen_api_key.txt)"
+        }), 502
+
     conn = get_conn()
     history_rows = conn.execute(
         "SELECT role, content FROM chat_messages ORDER BY id"
@@ -115,20 +120,26 @@ def chat():
     history = [dict(row) for row in history_rows]
     history.append({"role": "user", "content": text})
 
-    try:
-        reply = llm.chat_reply(conn, history)
-    except Exception as exc:
-        conn.close()
-        return jsonify({"error": str(exc)}), 502
+    def generate():
+        reply_parts = []
+        try:
+            for piece in llm.chat_reply_stream(conn, history):
+                reply_parts.append(piece)
+                yield piece
+        except Exception as exc:
+            error_text = f"（出错了：{exc}）"
+            reply_parts.append(error_text)
+            yield error_text
+        finally:
+            reply_text = "".join(reply_parts)
+            conn.execute(
+                "INSERT INTO chat_messages (role, content) VALUES ('user', ?), ('assistant', ?)",
+                (text, reply_text),
+            )
+            conn.commit()
+            conn.close()
 
-    conn.execute(
-        "INSERT INTO chat_messages (role, content) VALUES ('user', ?), ('assistant', ?)",
-        (text, reply),
-    )
-    conn.commit()
-    conn.close()
-
-    return jsonify({"ok": True, "reply": reply})
+    return Response(stream_with_context(generate()), mimetype="text/plain; charset=utf-8")
 
 
 if __name__ == "__main__":

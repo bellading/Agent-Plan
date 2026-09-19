@@ -109,6 +109,10 @@ def _api_key() -> str | None:
     return None
 
 
+def has_api_key() -> bool:
+    return _api_key() is not None
+
+
 def _load_chat_prompt(context: dict) -> str:
     text = CHAT_PROMPT_PATH.read_text(encoding="utf-8")
     match = re.search(r"## System Prompt\n\n```\n(.*?)\n```", text, re.DOTALL)
@@ -197,10 +201,14 @@ def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
         return {"error": str(exc)}
 
 
-def chat_reply(conn, history: list[dict]) -> str:
-    """history is the full message list (role/content dicts), ending with the
-    latest user message. Returns the assistant's final natural-language reply,
-    having executed any tool calls the model made along the way.
+def chat_reply_stream(conn, history: list[dict]):
+    """Generator yielding the assistant's reply text as it streams in.
+
+    history is the full message list (role/content dicts), ending with the
+    latest user message. Tool-calling rounds (the model deciding to
+    create/update/delete/list tasks) are executed silently and never
+    yielded — only the final natural-language answer streams out, so the
+    caller can join everything yielded to get the complete reply text.
     """
     api_key = _api_key()
     if not api_key:
@@ -215,31 +223,56 @@ def chat_reply(conn, history: list[dict]) -> str:
     messages = [{"role": "system", "content": system_prompt}, *history]
 
     for _ in range(MAX_TOOL_ROUNDS):
-        response = client.chat.completions.create(
+        stream = client.chat.completions.create(
             model=MODEL,
             messages=messages,
             tools=tools,
+            stream=True,
         )
-        message = response.choices[0].message
 
-        if not message.tool_calls:
-            return message.content or ""
+        content_parts = []
+        tool_calls_acc = {}
 
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                content_parts.append(delta.content)
+                yield delta.content
+            for tc in getattr(delta, "tool_calls", None) or []:
+                entry = tool_calls_acc.setdefault(tc.index, {"id": None, "name": None, "arguments": ""})
+                if tc.id:
+                    entry["id"] = tc.id
+                if tc.function and tc.function.name:
+                    entry["name"] = tc.function.name
+                if tc.function and tc.function.arguments:
+                    entry["arguments"] += tc.function.arguments
+
+        if not tool_calls_acc:
+            return
+
+        ordered_calls = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
         messages.append({
             "role": "assistant",
-            "content": message.content,
-            "tool_calls": [tc.model_dump() for tc in message.tool_calls],
+            "content": "".join(content_parts) or None,
+            "tool_calls": [
+                {
+                    "id": call["id"],
+                    "type": "function",
+                    "function": {"name": call["name"], "arguments": call["arguments"]},
+                }
+                for call in ordered_calls
+            ],
         })
-        for tool_call in message.tool_calls:
+        for call in ordered_calls:
             try:
-                args = json.loads(tool_call.function.arguments or "{}")
+                args = json.loads(call["arguments"] or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = _execute_tool(conn, tool_call.function.name, args, context["categories"])
+            result = _execute_tool(conn, call["name"], args, context["categories"])
             messages.append({
                 "role": "tool",
-                "tool_call_id": tool_call.id,
+                "tool_call_id": call["id"],
                 "content": json.dumps(result, ensure_ascii=False),
             })
 
-    return "这次讨论有点绕，能再说一遍你想做什么吗？"
+    yield "这次讨论有点绕，能再说一遍你想做什么吗？"

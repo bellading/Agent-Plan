@@ -140,7 +140,11 @@
   .msg { max-width: 68%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
   .msg.user { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 4px; }
   .msg.assistant { align-self: flex-start; background: var(--card-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-  .msg.pending { align-self: flex-start; color: var(--text-muted); font-style: italic; background: none; border: none; padding: 0 4px; }
+  .msg.streaming::after {
+    content: '▍'; display: inline-block; margin-left: 2px; color: var(--accent);
+    animation: blink 0.9s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
   .chat-input-row { display: flex; gap: 10px; padding: 16px 28px; border-top: 1px solid var(--border); }
   .chat-input-row input[type=text] { flex: 1; padding: 11px 14px; font-size: 14px; }
 
@@ -567,8 +571,8 @@ async function sendChat() {
   appendMessage('user', text);
   input.value = '';
   btn.disabled = true;
-  const pending = appendMessage('assistant pending', 'AI 正在想…');
-  pending.classList.add('pending');
+
+  const assistantDiv = appendMessage('assistant streaming', '…');
 
   try {
     const res = await fetch('/api/chat', {
@@ -576,13 +580,35 @@ async function sendChat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
-    const data = await res.json();
-    pending.remove();
+
     if (!res.ok) {
-      appendMessage('assistant', data.error || '出错了，稍后再试试');
+      const data = await res.json().catch(() => ({}));
+      assistantDiv.classList.remove('streaming');
+      assistantDiv.textContent = data.error || '出错了，稍后再试试';
       return;
     }
-    appendMessage('assistant', data.reply);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let full = '';
+    let started = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const piece = decoder.decode(value, { stream: true });
+      if (!piece) continue;
+      if (!started) { started = true; full = ''; }
+      full += piece;
+      assistantDiv.textContent = full;
+      scrollChatToBottom();
+    }
+
+    assistantDiv.classList.remove('streaming');
+    if (!full) assistantDiv.textContent = '（没有收到回复）';
+  } catch (err) {
+    assistantDiv.classList.remove('streaming');
+    assistantDiv.textContent = '网络出错了，稍后再试试';
   } finally {
     btn.disabled = false;
     input.focus();
