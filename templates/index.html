@@ -29,12 +29,24 @@
   .sidebar {
     width: 190px; flex-shrink: 0; background: var(--sidebar-bg);
     border-right: 1px solid var(--border-strong); padding: 24px 14px; display: flex; flex-direction: column; gap: 6px;
+    transition: width 0.18s ease, padding 0.18s ease; overflow: hidden;
   }
-  .sidebar h1 { font-size: 16px; margin: 0 8px 20px; color: var(--accent-dark); }
+  .sidebar.collapsed { width: 60px; padding: 24px 10px; }
+  .sidebar-header { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+  .sidebar.collapsed .sidebar-header { justify-content: center; }
+  .sidebar h1 { font-size: 16px; margin: 0; color: var(--accent-dark); white-space: nowrap; }
+  .sidebar.collapsed h1 { display: none; }
+  .sidebar-toggle-btn {
+    background: transparent; border: 1px solid var(--border-strong); border-radius: 7px;
+    color: var(--accent-dark); padding: 5px 6px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .sidebar-toggle-btn:hover { background: rgba(181, 121, 63, 0.15); }
   .nav-item {
     padding: 11px 14px; border-radius: 10px; cursor: pointer; font-size: 14px;
-    color: var(--text); transition: background 0.15s;
+    color: var(--text); transition: background 0.15s; white-space: nowrap; overflow: hidden;
   }
+  .sidebar.collapsed .nav-item { text-align: center; padding: 11px 4px; font-size: 12px; }
   .nav-item:hover { background: rgba(181, 121, 63, 0.12); }
   .nav-item.active { background: var(--accent); color: white; font-weight: 600; }
 
@@ -91,13 +103,20 @@
   }
   .task-card {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
-    padding: 14px 16px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(80, 60, 20, 0.05);
+    padding: 12px 16px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(80, 60, 20, 0.05);
   }
   .task-card.done { opacity: 0.55; }
   .task-card.done input[type=text], .task-card.done textarea { text-decoration: line-through; }
+  .card-summary { display: flex; align-items: center; gap: 8px; }
+  .card-summary .title-input { flex: 1; min-width: 120px; font-size: 14px; font-weight: 500; }
+  .expand-toggle {
+    padding: 4px 8px; font-size: 13px; line-height: 1; transition: transform 0.15s;
+  }
+  .task-card.expanded .expand-toggle { transform: rotate(180deg); }
+  .card-details { display: none; margin-top: 10px; }
+  .task-card.expanded .card-details { display: block; }
   .card-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
   .card-row:last-child { margin-bottom: 0; }
-  .card-row .title-input { flex: 1; min-width: 160px; font-size: 14px; font-weight: 500; }
   .card-row select { min-width: 78px; }
   .card-row input[type=text].datetime { width: 150px; }
   .task-card textarea { width: 100%; min-height: 2.4em; resize: vertical; }
@@ -138,10 +157,18 @@
 </head>
 <body>
 
-<div class="sidebar">
-  <h1>AgentPlan</h1>
-  <div class="nav-item" data-view="chat">AI 问答</div>
-  <div class="nav-item active" data-view="plan">计划列表</div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <button class="sidebar-toggle-btn" id="sidebar-toggle" title="收起/展开导览">
+      <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="15" height="13" rx="2.5" stroke="currentColor"/>
+        <line x1="5.5" y1="1" x2="5.5" y2="13" stroke="currentColor"/>
+      </svg>
+    </button>
+    <h1>AgentPlan</h1>
+  </div>
+  <div class="nav-item" data-view="chat" data-full="AI 问答" data-short="问答">AI 问答</div>
+  <div class="nav-item active" data-view="plan" data-full="计划列表" data-short="计划">计划列表</div>
 </div>
 
 <div class="main">
@@ -211,6 +238,7 @@ const STATUSES = ['todo', 'doing', 'done', 'missed', 'routine', 'dropped'];
 
 let knownCategories = [];
 let currentCategory = null;
+let expandedTaskIds = new Set();
 
 // ---------- dialog ----------
 const dialog = document.getElementById('app-dialog');
@@ -268,6 +296,25 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (item.dataset.view === 'chat') scrollChatToBottom();
   });
 });
+
+// ---------- sidebar collapse ----------
+const sidebar = document.getElementById('sidebar');
+
+function setSidebarCollapsed(collapsed) {
+  sidebar.classList.toggle('collapsed', collapsed);
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.textContent = collapsed ? item.dataset.short : item.dataset.full;
+  });
+  try { localStorage.setItem('agentplan-sidebar-collapsed', collapsed ? '1' : '0'); } catch (e) {}
+}
+
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
+});
+
+try {
+  setSidebarCollapsed(localStorage.getItem('agentplan-sidebar-collapsed') === '1');
+} catch (e) {}
 
 // ---------- shared helpers ----------
 function esc(v) {
@@ -356,28 +403,32 @@ async function loadDetailTasks() {
 
 function renderTaskCard(t) {
   const card = document.createElement('div');
-  card.className = 'task-card' + (t.status === 'done' ? ' done' : '');
+  const isExpanded = expandedTaskIds.has(String(t.id));
+  card.className = 'task-card' + (t.status === 'done' ? ' done' : '') + (isExpanded ? ' expanded' : '');
   card.dataset.id = t.id;
 
   card.innerHTML = `
-    <div class="card-row">
+    <div class="card-summary">
       <input type="checkbox" class="done-check" ${t.status === 'done' ? 'checked' : ''}>
       <input type="text" class="title-input" data-field="title" value="${esc(t.title)}">
+      <button class="ghost expand-toggle" title="展开/收起详情">▾</button>
       <button class="danger delete-btn" title="删除">×</button>
     </div>
-    <div class="card-row">
-      <select class="cat-select" data-field="category">${options(knownCategories, effectiveCategory(t.category))}</select>
-      <select class="lvl-select ${t.importance ?? ''}" data-field="importance">${options(LEVELS, t.importance)}</select>
-      <select class="lvl-select ${t.urgency ?? ''}" data-field="urgency">${options(LEVELS, t.urgency)}</select>
-      <select data-field="action">${options(ACTIONS, t.action)}</select>
-      <select data-field="status">${options(STATUSES, t.status, t.status)}</select>
-    </div>
-    <div class="card-row">
-      <input type="text" class="datetime" data-field="remind_at" placeholder="提醒时间" value="${esc(t.remind_at)}">
-      <input type="text" class="datetime" data-field="deadline" placeholder="截止时间" value="${esc(t.deadline)}">
-    </div>
-    <div class="card-row">
-      <textarea data-field="notes" placeholder="备注 / 计划">${esc(t.notes)}</textarea>
+    <div class="card-details">
+      <div class="card-row">
+        <select class="cat-select" data-field="category">${options(knownCategories, effectiveCategory(t.category))}</select>
+        <select class="lvl-select ${t.importance ?? ''}" data-field="importance">${options(LEVELS, t.importance)}</select>
+        <select class="lvl-select ${t.urgency ?? ''}" data-field="urgency">${options(LEVELS, t.urgency)}</select>
+        <select data-field="action">${options(ACTIONS, t.action)}</select>
+        <select data-field="status">${options(STATUSES, t.status, t.status)}</select>
+      </div>
+      <div class="card-row">
+        <input type="text" class="datetime" data-field="remind_at" placeholder="提醒时间" value="${esc(t.remind_at)}">
+        <input type="text" class="datetime" data-field="deadline" placeholder="截止时间" value="${esc(t.deadline)}">
+      </div>
+      <div class="card-row">
+        <textarea data-field="notes" placeholder="备注 / 计划">${esc(t.notes)}</textarea>
+      </div>
     </div>
   `;
   return card;
@@ -417,6 +468,15 @@ document.getElementById('detail-tasks').addEventListener('focusout', e => {
 });
 
 document.getElementById('detail-tasks').addEventListener('click', async e => {
+  if (e.target.classList.contains('expand-toggle')) {
+    const card = e.target.closest('.task-card');
+    const id = card.dataset.id;
+    card.classList.toggle('expanded');
+    if (card.classList.contains('expanded')) expandedTaskIds.add(id);
+    else expandedTaskIds.delete(id);
+    return;
+  }
+
   if (!e.target.classList.contains('delete-btn')) return;
   const card = e.target.closest('.task-card');
   const id = card.dataset.id;
@@ -428,6 +488,7 @@ document.getElementById('detail-tasks').addEventListener('click', async e => {
     const err = await res.json().catch(() => ({}));
     showDialog(err.error || '删除失败');
   }
+  expandedTaskIds.delete(id);
   loadDetailTasks();
 });
 
