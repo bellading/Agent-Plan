@@ -31,65 +31,73 @@ VALID_TYPES = {"single", "goal"}
 VALID_ACTIONS = {"now", "schedule", "routine", "drop"}
 VALID_STATUSES = {"todo", "doing", "done", "missed", "routine", "dropped"}
 
-TASK_PROPERTIES = {
-    "title": {"type": "string", "description": "任务主题"},
-    "notes": {"type": "string", "description": "备注，或目标型任务的计划详情"},
-    "category": {"type": "string", "enum": tasks_repo.CATEGORIES},
-    "type": {"type": "string", "enum": sorted(VALID_TYPES)},
-    "importance": {"type": "string", "enum": sorted(VALID_LEVELS)},
-    "urgency": {"type": "string", "enum": sorted(VALID_LEVELS)},
-    "action": {"type": "string", "enum": sorted(VALID_ACTIONS)},
-    "status": {"type": "string", "enum": sorted(VALID_STATUSES)},
-    "remind_at": {"type": "string", "description": "提醒时间，格式 YYYY-MM-DD HH:MM"},
-    "deadline": {"type": "string", "description": "截止时间，格式 YYYY-MM-DD HH:MM"},
-}
+def _task_properties(categories: list[str]) -> dict:
+    return {
+        "title": {"type": "string", "description": "任务主题"},
+        "notes": {"type": "string", "description": "备注，或目标型任务的计划详情"},
+        "category": {
+            "type": "string",
+            "enum": categories,
+            "description": "只能是现有分类之一；新分类只能由用户在计划列表里手动添加，你不要自己发明新的",
+        },
+        "type": {"type": "string", "enum": sorted(VALID_TYPES)},
+        "importance": {"type": "string", "enum": sorted(VALID_LEVELS)},
+        "urgency": {"type": "string", "enum": sorted(VALID_LEVELS)},
+        "action": {"type": "string", "enum": sorted(VALID_ACTIONS)},
+        "status": {"type": "string", "enum": sorted(VALID_STATUSES)},
+        "remind_at": {"type": "string", "description": "提醒时间，格式 YYYY-MM-DD HH:MM"},
+        "deadline": {"type": "string", "description": "截止时间，格式 YYYY-MM-DD HH:MM"},
+    }
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "create_task",
-            "description": "在讨论清楚做什么、重要紧急程度、大概时间之后，创建一条新任务",
-            "parameters": {
-                "type": "object",
-                "properties": TASK_PROPERTIES,
-                "required": ["title"],
+
+def _build_tools(categories: list[str]) -> list[dict]:
+    task_properties = _task_properties(categories)
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "create_task",
+                "description": "在讨论清楚做什么、重要紧急程度、大概时间之后，创建一条新任务",
+                "parameters": {
+                    "type": "object",
+                    "properties": task_properties,
+                    "required": ["title"],
+                },
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_task",
-            "description": "修改一条已有任务的部分字段。先用 list_open_tasks 确认 task_id",
-            "parameters": {
-                "type": "object",
-                "properties": {"task_id": {"type": "integer"}, **TASK_PROPERTIES},
-                "required": ["task_id"],
+        {
+            "type": "function",
+            "function": {
+                "name": "update_task",
+                "description": "修改一条已有任务的部分字段。先用 list_open_tasks 确认 task_id",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"task_id": {"type": "integer"}, **task_properties},
+                    "required": ["task_id"],
+                },
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_task",
-            "description": "删除一条任务。先用 list_open_tasks 确认 task_id",
-            "parameters": {
-                "type": "object",
-                "properties": {"task_id": {"type": "integer"}},
-                "required": ["task_id"],
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_task",
+                "description": "删除一条任务。先用 list_open_tasks 确认 task_id",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"task_id": {"type": "integer"}},
+                    "required": ["task_id"],
+                },
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_open_tasks",
-            "description": "查看当前所有未完成任务（含 id、标题、分类等），用于修改/删除前定位任务",
-            "parameters": {"type": "object", "properties": {}},
+        {
+            "type": "function",
+            "function": {
+                "name": "list_open_tasks",
+                "description": "查看当前所有未完成任务（含 id、标题、分类等），用于修改/删除前定位任务",
+                "parameters": {"type": "object", "properties": {}},
+            },
         },
-    },
-]
+    ]
 
 
 def _api_key() -> str | None:
@@ -113,6 +121,7 @@ def _load_chat_prompt(context: dict) -> str:
         .replace("{{availability}}", context["availability"])
         .replace("{{open_count}}", str(context["open_count"]))
         .replace("{{open_summary}}", context["open_summary"])
+        .replace("{{categories}}", "、".join(context["categories"]))
     )
 
 
@@ -126,16 +135,18 @@ def get_user_context(conn) -> dict:
     open_rows = tasks_repo.list_open_tasks(conn)
     open_count = len(open_rows)
     open_summary = "、".join(r["title"] for r in open_rows[:10]) or "无"
+    categories = tasks_repo.list_categories(conn)
 
     return {
         "focus": focus,
         "availability": availability,
         "open_count": open_count,
         "open_summary": open_summary,
+        "categories": categories,
     }
 
 
-def _sanitize_task_fields(args: dict) -> dict:
+def _sanitize_task_fields(args: dict, categories: list[str]) -> dict:
     fields = {k: v for k, v in args.items() if k in tasks_repo.TASK_FIELDS}
     if "type" in fields and fields["type"] not in VALID_TYPES:
         fields.pop("type")
@@ -147,18 +158,18 @@ def _sanitize_task_fields(args: dict) -> dict:
         fields.pop("action")
     if "status" in fields and fields["status"] not in VALID_STATUSES:
         fields.pop("status")
-    if "category" in fields and fields["category"] not in tasks_repo.CATEGORIES:
-        fields["category"] = "其他"
+    if "category" in fields and fields["category"] not in categories:
+        fields["category"] = tasks_repo.FALLBACK_CATEGORY
     return fields
 
 
-def _execute_tool(conn, name: str, args: dict) -> dict:
+def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
     try:
         if name == "create_task":
             title = (args.get("title") or "").strip()
             if not title:
                 return {"error": "title is required"}
-            fields = _sanitize_task_fields(args)
+            fields = _sanitize_task_fields(args, categories)
             fields["title"] = title
             new_id = tasks_repo.insert_task(conn, fields)
             return {"ok": True, "id": new_id}
@@ -167,7 +178,7 @@ def _execute_tool(conn, name: str, args: dict) -> dict:
             task_id = args.get("task_id")
             if task_id is None:
                 return {"error": "task_id is required"}
-            fields = _sanitize_task_fields(args)
+            fields = _sanitize_task_fields(args, categories)
             updated = tasks_repo.update_task(conn, int(task_id), fields)
             return {"ok": updated}
 
@@ -200,13 +211,14 @@ def chat_reply(conn, history: list[dict]) -> str:
     client = OpenAI(api_key=api_key, base_url=BASE_URL)
     context = get_user_context(conn)
     system_prompt = _load_chat_prompt(context)
+    tools = _build_tools(context["categories"])
     messages = [{"role": "system", "content": system_prompt}, *history]
 
     for _ in range(MAX_TOOL_ROUNDS):
         response = client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            tools=TOOLS,
+            tools=tools,
         )
         message = response.choices[0].message
 
@@ -223,7 +235,7 @@ def chat_reply(conn, history: list[dict]) -> str:
                 args = json.loads(tool_call.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = _execute_tool(conn, tool_call.function.name, args)
+            result = _execute_tool(conn, tool_call.function.name, args, context["categories"])
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,

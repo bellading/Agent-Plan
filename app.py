@@ -71,6 +71,26 @@ def delete_task(task_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/categories")
+def list_categories():
+    conn = get_conn()
+    counts = tasks_repo.category_counts(conn)
+    conn.close()
+    return jsonify(counts)
+
+
+@app.route("/api/categories", methods=["POST"])
+def create_category():
+    data = request.get_json(force=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    conn = get_conn()
+    tasks_repo.add_category(conn, name)
+    conn.close()
+    return jsonify({"ok": True}), 201
+
+
 @app.route("/api/chat/history")
 def chat_history():
     conn = get_conn()

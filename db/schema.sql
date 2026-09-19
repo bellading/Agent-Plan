@@ -35,3 +35,16 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 计划列表 category tiles. sort_order keeps 其他 pinned last; user-added
+-- custom categories (the "+" tile) land in between. INSERT OR IGNORE below
+-- runs on every startup (schema.sql is executed unconditionally), so
+-- existing databases get the defaults too, not just fresh installs.
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    sort_order INTEGER NOT NULL
+);
+
+INSERT OR IGNORE INTO categories (name, sort_order) VALUES
+    ('学习', 10), ('工作', 20), ('运动', 30), ('食物', 40), ('其他', 999999);

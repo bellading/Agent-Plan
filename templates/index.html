@@ -67,15 +67,28 @@
   select.low { background-color: var(--low); }
 
   /* Plan list view */
-  #view-plan { padding: 24px 32px; overflow-y: auto; gap: 22px; }
-  .plan-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  #view-plan { padding: 24px 32px; overflow-y: auto; }
+  .plan-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
   .plan-header h2 { margin: 0; font-size: 19px; }
-  .category-section { margin-bottom: 8px; }
+
+  .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; max-width: 800px; }
+  .category-tile {
+    background: var(--card-bg); border: 1.5px solid var(--border); border-radius: 18px;
+    padding: 26px 16px; text-align: center; cursor: pointer;
+    transition: transform .12s, box-shadow .12s, border-color .12s;
+    box-shadow: 0 1px 3px rgba(80, 60, 20, 0.06);
+  }
+  .category-tile:hover { transform: translateY(-2px); box-shadow: 0 5px 16px rgba(80, 60, 20, 0.13); border-color: var(--accent); }
+  .category-tile .tile-name { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .category-tile .tile-count { font-size: 12px; color: var(--text-muted); }
+  .category-tile.add-tile { border-style: dashed; }
+  .category-tile.add-tile .tile-plus { font-size: 26px; color: var(--accent); line-height: 1; margin-bottom: 4px; }
+  .category-tile.add-tile .tile-name { color: var(--text-muted); font-weight: 500; font-size: 13px; }
+
   .category-title {
     font-size: 14px; font-weight: 600; color: var(--accent-dark); margin: 0 0 10px 2px;
     display: flex; align-items: center; gap: 8px;
   }
-  .category-title .count { font-weight: 400; color: var(--text-muted); font-size: 12px; }
   .task-card {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
     padding: 14px 16px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(80, 60, 20, 0.05);
@@ -119,6 +132,7 @@
   }
   dialog#app-dialog::backdrop { background: rgba(60, 45, 20, 0.35); }
   dialog#app-dialog .dialog-body { padding: 22px 22px 6px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+  dialog#app-dialog input[type=text] { display: block; width: calc(100% - 44px); margin: 4px 22px 0; }
   dialog#app-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px 20px; }
 </style>
 </head>
@@ -133,27 +147,38 @@
 <div class="main">
 
   <div class="view active" id="view-plan">
-    <div class="plan-header"><h2>计划列表</h2></div>
 
-    <div class="new-task-form">
-      <h2>手动新建</h2>
-      <div class="row">
-        <input id="new-title" type="text" placeholder="主题（必填）">
-        <select id="new-category"></select>
-        <select id="new-type"><option value="single">single</option><option value="goal">goal</option></select>
-      </div>
-      <div class="row">
-        <select id="new-importance"><option value="">重要度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
-        <select id="new-urgency"><option value="">紧急度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
-        <select id="new-action"><option value="">动作</option><option value="now">now</option><option value="schedule">schedule</option><option value="routine">routine</option><option value="drop">drop</option></select>
-        <input id="new-remind_at" type="text" class="datetime" placeholder="提醒 2026-09-20 09:00">
-        <input id="new-deadline" type="text" class="datetime" placeholder="截止 2026-09-20 00:00">
-      </div>
-      <div class="row"><textarea id="new-notes" placeholder="备注 / 计划"></textarea></div>
-      <button id="add-task-btn">添加</button>
+    <div id="plan-grid">
+      <div class="plan-header"><h2>计划列表</h2></div>
+      <div class="category-grid" id="category-grid"></div>
     </div>
 
-    <div id="category-sections"></div>
+    <div id="plan-detail" style="display:none;">
+      <div class="plan-header">
+        <button class="ghost" id="back-to-grid">← 返回</button>
+        <h2 id="detail-title"></h2>
+      </div>
+
+      <div class="new-task-form">
+        <h2>新建任务</h2>
+        <div class="row">
+          <input id="new-title" type="text" placeholder="主题（必填）">
+          <select id="new-type"><option value="single">single</option><option value="goal">goal</option></select>
+        </div>
+        <div class="row">
+          <select id="new-importance"><option value="">重要度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
+          <select id="new-urgency"><option value="">紧急度</option><option value="high">high</option><option value="med">med</option><option value="low">low</option></select>
+          <select id="new-action"><option value="">动作</option><option value="now">now</option><option value="schedule">schedule</option><option value="routine">routine</option><option value="drop">drop</option></select>
+          <input id="new-remind_at" type="text" class="datetime" placeholder="提醒 2026-09-20 09:00">
+          <input id="new-deadline" type="text" class="datetime" placeholder="截止 2026-09-20 00:00">
+        </div>
+        <div class="row"><textarea id="new-notes" placeholder="备注 / 计划"></textarea></div>
+        <button id="add-task-btn">添加</button>
+      </div>
+
+      <div id="detail-tasks"></div>
+    </div>
+
   </div>
 
   <div class="view" id="view-chat">
@@ -172,6 +197,7 @@
 
 <dialog id="app-dialog">
   <div class="dialog-body" id="app-dialog-body"></div>
+  <input type="text" id="app-dialog-input" style="display:none">
   <div class="dialog-actions">
     <button class="ghost" id="app-dialog-cancel" style="display:none">取消</button>
     <button id="app-dialog-ok">好的</button>
@@ -179,20 +205,24 @@
 </dialog>
 
 <script>
-const CATEGORIES = ['学习', '工作', '运动', '食物', '其他'];
 const LEVELS = ['', 'high', 'med', 'low'];
 const ACTIONS = ['', 'now', 'schedule', 'routine', 'drop'];
 const STATUSES = ['todo', 'doing', 'done', 'missed', 'routine', 'dropped'];
 
+let knownCategories = [];
+let currentCategory = null;
+
 // ---------- dialog ----------
 const dialog = document.getElementById('app-dialog');
 const dialogBody = document.getElementById('app-dialog-body');
+const dialogInput = document.getElementById('app-dialog-input');
 const dialogOk = document.getElementById('app-dialog-ok');
 const dialogCancel = document.getElementById('app-dialog-cancel');
 dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
 
 function showDialog(message) {
   dialogBody.textContent = message;
+  dialogInput.style.display = 'none';
   dialogCancel.style.display = 'none';
   dialogOk.textContent = '好的';
   dialogOk.onclick = () => dialog.close();
@@ -202,11 +232,29 @@ function showDialog(message) {
 function showConfirm(message) {
   return new Promise(resolve => {
     dialogBody.textContent = message;
+    dialogInput.style.display = 'none';
     dialogCancel.style.display = 'inline-block';
     dialogOk.textContent = '删除';
     dialogOk.onclick = () => { dialog.close(); resolve(true); };
     dialogCancel.onclick = () => { dialog.close(); resolve(false); };
     dialog.showModal();
+  });
+}
+
+function showPrompt(message, placeholder) {
+  return new Promise(resolve => {
+    dialogBody.textContent = message;
+    dialogInput.style.display = 'block';
+    dialogInput.value = '';
+    dialogInput.placeholder = placeholder || '';
+    dialogCancel.style.display = 'inline-block';
+    dialogOk.textContent = '确定';
+    const submit = () => { const v = dialogInput.value.trim(); dialog.close(); resolve(v || null); };
+    dialogOk.onclick = submit;
+    dialogCancel.onclick = () => { dialog.close(); resolve(null); };
+    dialogInput.onkeydown = e => { if (e.key === 'Enter') submit(); };
+    dialog.showModal();
+    dialogInput.focus();
   });
 }
 
@@ -232,27 +280,78 @@ function options(values, current, labelForBlank) {
   return values.map(v => `<option value="${esc(v)}" ${v === (current ?? '') ? 'selected' : ''}>${v || (labelForBlank ?? '—')}</option>`).join('');
 }
 
-// ---------- plan list ----------
-document.getElementById('new-category').innerHTML = options(CATEGORIES, CATEGORIES[0]);
+function effectiveCategory(cat) {
+  return knownCategories.includes(cat) ? cat : '其他';
+}
 
-async function loadTasks() {
+// ---------- category grid ----------
+async function loadCategoryGrid() {
+  const res = await fetch('/api/categories');
+  const categories = await res.json();
+  knownCategories = categories.map(c => c.name);
+
+  const grid = document.getElementById('category-grid');
+  grid.innerHTML = '';
+  for (const c of categories) {
+    const tile = document.createElement('div');
+    tile.className = 'category-tile';
+    tile.dataset.name = c.name;
+    tile.innerHTML = `<div class="tile-name">${esc(c.name)}</div><div class="tile-count">${c.count} 项</div>`;
+    grid.appendChild(tile);
+  }
+  const addTile = document.createElement('div');
+  addTile.className = 'category-tile add-tile';
+  addTile.id = 'add-category-tile';
+  addTile.innerHTML = `<div class="tile-plus">+</div><div class="tile-name">自定义</div>`;
+  grid.appendChild(addTile);
+}
+
+document.getElementById('category-grid').addEventListener('click', async e => {
+  if (e.target.closest('#add-category-tile')) {
+    const name = await showPrompt('给新的分类起个名字', '比如：摄影');
+    if (!name) return;
+    const res = await fetch('/api/categories', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showDialog(err.error || '添加失败');
+      return;
+    }
+    loadCategoryGrid();
+    return;
+  }
+  const tile = e.target.closest('.category-tile');
+  if (tile) openCategoryDetail(tile.dataset.name);
+});
+
+function openCategoryDetail(name) {
+  currentCategory = name;
+  document.getElementById('plan-grid').style.display = 'none';
+  document.getElementById('plan-detail').style.display = 'block';
+  document.getElementById('detail-title').textContent = name;
+  loadDetailTasks();
+}
+
+document.getElementById('back-to-grid').addEventListener('click', () => {
+  document.getElementById('plan-detail').style.display = 'none';
+  document.getElementById('plan-grid').style.display = 'block';
+  loadCategoryGrid();
+});
+
+// ---------- task list within a category ----------
+async function loadDetailTasks() {
   const res = await fetch('/api/tasks');
   const tasks = await res.json();
-  const container = document.getElementById('category-sections');
-  container.innerHTML = '';
+  const inCat = tasks.filter(t => effectiveCategory(t.category) === currentCategory);
 
-  for (const cat of CATEGORIES) {
-    const inCat = tasks.filter(t => (CATEGORIES.includes(t.category) ? t.category : '其他') === cat);
-    const section = document.createElement('div');
-    section.className = 'category-section';
-    section.innerHTML = `<div class="category-title">${cat} <span class="count">${inCat.length}</span></div>`;
-    if (inCat.length === 0) {
-      section.innerHTML += `<div class="empty-hint">还没有${cat}相关的计划</div>`;
-    } else {
-      for (const t of inCat) section.appendChild(renderTaskCard(t));
-    }
-    container.appendChild(section);
+  const container = document.getElementById('detail-tasks');
+  container.innerHTML = '';
+  if (inCat.length === 0) {
+    container.innerHTML = `<div class="empty-hint">还没有${esc(currentCategory)}相关的计划</div>`;
+    return;
   }
+  for (const t of inCat) container.appendChild(renderTaskCard(t));
 }
 
 function renderTaskCard(t) {
@@ -267,7 +366,7 @@ function renderTaskCard(t) {
       <button class="danger delete-btn" title="删除">×</button>
     </div>
     <div class="card-row">
-      <select class="cat-select" data-field="category">${options(CATEGORIES, CATEGORIES.includes(t.category) ? t.category : '其他')}</select>
+      <select class="cat-select" data-field="category">${options(knownCategories, effectiveCategory(t.category))}</select>
       <select class="lvl-select ${t.importance ?? ''}" data-field="importance">${options(LEVELS, t.importance)}</select>
       <select class="lvl-select ${t.urgency ?? ''}" data-field="urgency">${options(LEVELS, t.urgency)}</select>
       <select data-field="action">${options(ACTIONS, t.action)}</select>
@@ -294,10 +393,10 @@ async function patchTask(id, fields) {
     const err = await res.json().catch(() => ({}));
     showDialog(err.error || '保存失败');
   }
-  loadTasks();
+  loadDetailTasks();
 }
 
-document.getElementById('category-sections').addEventListener('change', e => {
+document.getElementById('detail-tasks').addEventListener('change', e => {
   const el = e.target;
   const id = el.closest('.task-card')?.dataset.id;
   if (!id) return;
@@ -309,7 +408,7 @@ document.getElementById('category-sections').addEventListener('change', e => {
   }
 });
 
-document.getElementById('category-sections').addEventListener('focusout', e => {
+document.getElementById('detail-tasks').addEventListener('focusout', e => {
   const el = e.target;
   if (!el.dataset.field || el.tagName === 'SELECT') return;
   const id = el.closest('.task-card')?.dataset.id;
@@ -317,7 +416,7 @@ document.getElementById('category-sections').addEventListener('focusout', e => {
   patchTask(id, { [el.dataset.field]: el.value });
 });
 
-document.getElementById('category-sections').addEventListener('click', async e => {
+document.getElementById('detail-tasks').addEventListener('click', async e => {
   if (!e.target.classList.contains('delete-btn')) return;
   const card = e.target.closest('.task-card');
   const id = card.dataset.id;
@@ -329,7 +428,7 @@ document.getElementById('category-sections').addEventListener('click', async e =
     const err = await res.json().catch(() => ({}));
     showDialog(err.error || '删除失败');
   }
-  loadTasks();
+  loadDetailTasks();
 });
 
 document.getElementById('add-task-btn').addEventListener('click', async () => {
@@ -338,7 +437,7 @@ document.getElementById('add-task-btn').addEventListener('click', async () => {
 
   const payload = {
     title,
-    category: document.getElementById('new-category').value,
+    category: currentCategory,
     type: document.getElementById('new-type').value,
     importance: document.getElementById('new-importance').value || null,
     urgency: document.getElementById('new-urgency').value || null,
@@ -357,7 +456,7 @@ document.getElementById('add-task-btn').addEventListener('click', async () => {
   if (res.ok) {
     ['new-title', 'new-remind_at', 'new-deadline', 'new-notes'].forEach(id => document.getElementById(id).value = '');
     ['new-importance', 'new-urgency', 'new-action'].forEach(id => document.getElementById(id).value = '');
-    loadTasks();
+    loadDetailTasks();
   } else {
     const err = await res.json().catch(() => ({}));
     showDialog(err.error || '添加失败');
@@ -416,7 +515,6 @@ async function sendChat() {
       return;
     }
     appendMessage('assistant', data.reply);
-    loadTasks();
   } finally {
     btn.disabled = false;
     input.focus();
@@ -428,7 +526,7 @@ document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });
 
-loadTasks();
+loadCategoryGrid();
 loadChatHistory();
 </script>
 </body>
