@@ -110,8 +110,10 @@ def _build_tools(categories: list[str]) -> list[dict]:
                 "name": "present_plan_for_confirmation",
                 "description": (
                     "你已经整理出一份完整、具体的计划（可以是简单一件事，也可以是目标型的详细计划），"
-                    "准备讲给用户听并询问她满不满意时调用这个工具（不需要参数）。调用后，紧接着在同一轮回复里"
-                    "用自然语言把完整计划讲清楚。注意：这一步绝不能同时调用 create_task，要等用户确认。"
+                    "准备讲给用户听并询问她满不满意时调用这个工具（不需要参数）。重要：调用这个工具之前"
+                    "不要先输出任何文字——不要先讲计划再调用，而是直接调用；完整的计划内容要放在调用"
+                    "之后的下一段回复里讲清楚，这样才不会漏掉或者重复。注意：这一步绝不能同时调用 "
+                    "create_task，要等用户确认。"
                 ),
                 "parameters": {"type": "object", "properties": {}},
             },
@@ -278,13 +280,14 @@ def chat_reply_stream(conn, history: list[dict]):
             temperature=0.2,
         )
 
-        content_parts = []
         tool_calls_acc = {}
+        content_parts = []
 
         for chunk in stream:
             delta = chunk.choices[0].delta
             if getattr(delta, "content", None):
                 content_parts.append(delta.content)
+                yield delta.content
             for tc in getattr(delta, "tool_calls", None) or []:
                 entry = tool_calls_acc.setdefault(tc.index, {"id": None, "name": None, "arguments": ""})
                 if tc.id:
@@ -295,16 +298,6 @@ def chat_reply_stream(conn, history: list[dict]):
                     entry["arguments"] += tc.function.arguments
 
         if not tool_calls_acc:
-            # Genuinely the final round (no tool call) — only now do we know
-            # this round's content is the real answer, not throwaway preamble
-            # the model wrote in the same round as deciding to call a tool
-            # (that does happen, and yielding content live before knowing
-            # this caused the plan to be shown once as preamble and again
-            # when the model re-described it per present_plan_for_confirmation's
-            # instructions). Replaying the original chunks keeps the
-            # streamed feel instead of dumping it as one block.
-            for part in content_parts:
-                yield part
             if pending_action:
                 yield f"\n[[ACTION:{pending_action}]]"
             return
