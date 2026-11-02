@@ -1,12 +1,16 @@
 """AgentPlan v2: two-view web app (AI 问答 chat + 计划列表 by category)."""
 
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 import llm
 import tasks_repo
 from db.init_db import get_conn, init_db
+
+TZ = ZoneInfo("Asia/Shanghai")
 
 app = Flask(__name__)
 
@@ -95,10 +99,29 @@ def create_category():
 def chat_history():
     conn = get_conn()
     rows = conn.execute(
-        "SELECT role, content, created_at FROM chat_messages ORDER BY id"
+        "SELECT id, role, content, feedback, created_at FROM chat_messages ORDER BY id"
     ).fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
+
+
+@app.route("/api/chat/<int:message_id>/feedback", methods=["POST"])
+def set_chat_feedback(message_id):
+    data = request.get_json(force=True) or {}
+    feedback = data.get("feedback")
+    if feedback not in ("up", "down", None):
+        return jsonify({"error": "feedback must be 'up', 'down', or null"}), 400
+
+    conn = get_conn()
+    cur = conn.execute(
+        "UPDATE chat_messages SET feedback = ? WHERE id = ? AND role = 'assistant'",
+        (feedback, message_id),
+    )
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"error": "message not found"}), 404
+    return jsonify({"ok": True})
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -132,9 +155,11 @@ def chat():
             yield error_text
         finally:
             reply_text = "".join(reply_parts)
+            now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
-                "INSERT INTO chat_messages (role, content) VALUES ('user', ?), ('assistant', ?)",
-                (text, reply_text),
+                "INSERT INTO chat_messages (role, content, created_at) VALUES "
+                "('user', ?, ?), ('assistant', ?, ?)",
+                (text, now_str, reply_text, now_str),
             )
             conn.commit()
             conn.close()

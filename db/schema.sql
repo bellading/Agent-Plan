@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     user_id TEXT NOT NULL DEFAULT 'bella',
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
+    feedback TEXT CHECK (feedback IN ('up', 'down')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

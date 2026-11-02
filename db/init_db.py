@@ -16,6 +16,17 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    """Add a column if it's missing, so existing databases (created before
+    this column existed) pick it up without a manual migration. schema.sql's
+    CREATE TABLE IF NOT EXISTS alone can't do this for a table that already
+    exists without the column.
+    """
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db(reset: bool = False, seed: bool = True) -> None:
     """Create the schema and, only on a genuinely empty tasks table, load the
     seed data. Safe to call on every startup: never re-runs seed.sql (which
@@ -27,6 +38,7 @@ def init_db(reset: bool = False, seed: bool = True) -> None:
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        _ensure_column(conn, "chat_messages", "feedback", "feedback TEXT")
         if seed:
             row_count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             if row_count == 0:

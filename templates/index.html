@@ -137,14 +137,25 @@
   .chat-header h2 { margin: 0; font-size: 19px; }
   .chat-header p { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
   .chat-messages { flex: 1; overflow-y: auto; padding: 20px 28px; display: flex; flex-direction: column; gap: 12px; }
-  .msg { max-width: 68%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
+  .msg { max-width: 68%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; }
   .msg.user { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 4px; }
   .msg.assistant { align-self: flex-start; background: var(--card-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-  .msg.streaming::after {
+  .msg-text { white-space: pre-wrap; }
+  .msg.streaming .msg-text::after {
     content: '▍'; display: inline-block; margin-left: 2px; color: var(--accent);
     animation: blink 0.9s step-start infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
+  .msg-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; opacity: 0.75; }
+  .msg-time { font-size: 11px; color: var(--text-muted); }
+  .msg.user .msg-time { color: rgba(255,255,255,0.75); }
+  .meta-btn {
+    background: transparent; border: none; color: inherit; opacity: 0.7;
+    font-size: 12px; padding: 2px 4px; cursor: pointer; border-radius: 5px; line-height: 1;
+  }
+  .meta-btn:hover { opacity: 1; background: rgba(0,0,0,0.08); }
+  .msg.user .meta-btn:hover { background: rgba(255,255,255,0.18); }
+  .feedback-btn.active { opacity: 1; background: rgba(181, 121, 63, 0.18); }
   .chat-input-row { display: flex; gap: 10px; padding: 16px 28px; border-top: 1px solid var(--border); }
   .chat-input-row input[type=text] { flex: 1; padding: 11px 14px; font-size: 14px; }
 
@@ -542,10 +553,85 @@ function scrollChatToBottom() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function appendMessage(role, content) {
+function formatMsgTime(stored) {
+  // stored as "YYYY-MM-DD HH:MM:SS" in Beijing local time (see app.py)
+  const [datePart, timePart] = (stored || '').split(' ');
+  if (!datePart || !timePart) return '';
+  const [, month, day] = datePart.split('-');
+  const [hh, mm] = timePart.split(':');
+  return `${month}-${day} ${hh}:${mm}`;
+}
+
+async function setMessageFeedback(messageId, value) {
+  const res = await fetch(`/api/chat/${messageId}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedback: value }),
+  });
+  return res.ok;
+}
+
+function buildMetaRow(msgDiv, role, meta) {
+  const row = document.createElement('div');
+  row.className = 'msg-meta';
+
+  const time = document.createElement('span');
+  time.className = 'msg-time';
+  time.textContent = formatMsgTime(meta.createdAt);
+  row.appendChild(time);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'meta-btn copy-btn';
+  copyBtn.title = '复制';
+  copyBtn.textContent = '⧉';
+  copyBtn.addEventListener('click', () => {
+    const text = msgDiv.querySelector('.msg-text').textContent;
+    navigator.clipboard.writeText(text)
+      .then(() => { copyBtn.textContent = '✓'; setTimeout(() => { copyBtn.textContent = '⧉'; }, 1200); })
+      .catch(() => showDialog('复制失败'));
+  });
+  row.appendChild(copyBtn);
+
+  if (role === 'assistant' && meta.id) {
+    const upBtn = document.createElement('button');
+    upBtn.className = 'meta-btn feedback-btn' + (meta.feedback === 'up' ? ' active' : '');
+    upBtn.title = '赞';
+    upBtn.textContent = '👍';
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'meta-btn feedback-btn' + (meta.feedback === 'down' ? ' active' : '');
+    downBtn.title = '踩';
+    downBtn.textContent = '👎';
+
+    const apply = async (btn, otherBtn, value) => {
+      const nextValue = btn.classList.contains('active') ? null : value;
+      const ok = await setMessageFeedback(meta.id, nextValue);
+      if (!ok) { showDialog('操作失败，稍后再试'); return; }
+      btn.classList.toggle('active', nextValue !== null);
+      otherBtn.classList.remove('active');
+    };
+
+    upBtn.addEventListener('click', () => apply(upBtn, downBtn, 'up'));
+    downBtn.addEventListener('click', () => apply(downBtn, upBtn, 'down'));
+
+    row.appendChild(upBtn);
+    row.appendChild(downBtn);
+  }
+
+  return row;
+}
+
+function appendMessage(role, content, meta) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  div.textContent = content;
+
+  const textEl = document.createElement('div');
+  textEl.className = 'msg-text';
+  textEl.textContent = content;
+  div.appendChild(textEl);
+
+  if (meta) div.appendChild(buildMetaRow(div, role, meta));
+
   chatMessages.appendChild(div);
   scrollChatToBottom();
   return div;
@@ -559,7 +645,9 @@ async function loadChatHistory() {
     appendMessage('assistant', '嗨，想做什么事、或者想聊聊某个计划，直接跟我说就行。');
     return;
   }
-  for (const m of history) appendMessage(m.role, m.content);
+  for (const m of history) {
+    appendMessage(m.role, m.content, { id: m.id, createdAt: m.created_at, feedback: m.feedback });
+  }
 }
 
 async function sendChat() {
@@ -573,6 +661,7 @@ async function sendChat() {
   btn.disabled = true;
 
   const assistantDiv = appendMessage('assistant streaming', '…');
+  const textEl = assistantDiv.querySelector('.msg-text');
 
   try {
     const res = await fetch('/api/chat', {
@@ -584,7 +673,7 @@ async function sendChat() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       assistantDiv.classList.remove('streaming');
-      assistantDiv.textContent = data.error || '出错了，稍后再试试';
+      textEl.textContent = data.error || '出错了，稍后再试试';
       return;
     }
 
@@ -600,15 +689,16 @@ async function sendChat() {
       if (!piece) continue;
       if (!started) { started = true; full = ''; }
       full += piece;
-      assistantDiv.textContent = full;
+      textEl.textContent = full;
       scrollChatToBottom();
     }
 
     assistantDiv.classList.remove('streaming');
-    if (!full) assistantDiv.textContent = '（没有收到回复）';
+    if (!full) textEl.textContent = '（没有收到回复）';
+    await loadChatHistory();
   } catch (err) {
     assistantDiv.classList.remove('streaming');
-    assistantDiv.textContent = '网络出错了，稍后再试试';
+    textEl.textContent = '网络出错了，稍后再试试';
   } finally {
     btn.disabled = false;
     input.focus();
