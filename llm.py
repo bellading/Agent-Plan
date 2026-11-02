@@ -288,10 +288,19 @@ def chat_reply_stream(conn, history: list[dict]):
     advanced_this_turn = False
 
     for _ in range(MAX_TOOL_ROUNDS):
+        # Once a confirmation-flow step has happened this turn, stop handing
+        # the model any tools at all for the rest of the reply. Otherwise a
+        # rejected call (see advanced_this_turn below) doesn't make the
+        # model give up — it just retries the same call next round, and
+        # since each retry re-narrates the question first, that's what
+        # turns into the same sentence repeating itself over and over until
+        # MAX_TOOL_ROUNDS is hit. With no tools offered, it can only write
+        # the closing text and stop, which is all it should be doing anyway
+        # once a step has fired.
         stream = client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            tools=tools,
+            tools=None if advanced_this_turn else tools,
             stream=True,
             temperature=0.2,
         )
