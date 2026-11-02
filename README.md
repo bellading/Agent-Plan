@@ -51,7 +51,7 @@ pip install -r requirements.txt
 日常打开，双击对应脚本即可（网页 + 调度器一起启动，并自动打开浏览器）：
 
 - macOS：双击 `start_mac.command`（首次双击如果提示"无法打开"，右键选"打开"确认一次即可）
-- Windows：双击 `start_windows.bat`
+- Windows：双击 `start_windows.bat`——网页和调度器会在后台最小化运行（不会弹出来挡着），只在任务栏能看到"AgentPlan Scheduler"和"AgentPlan Web"两个图标；要停止就去任务栏把这两个窗口关掉，或者用任务管理器结束对应的 python 进程；如果网页打不开想看报错，点开任务栏里"AgentPlan Web"那个窗口就能看到
 
 不想用脚本、想自己在终端里跑也可以：
 
