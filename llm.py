@@ -25,6 +25,23 @@ SECRET_FILE = Path(__file__).parent / ".secrets" / "qwen_api_key.txt"
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 MODEL = "qwen-max"
 MAX_TOOL_ROUNDS = 5
+MAX_TOKENS = 2000
+
+# How long a trailing chunk of text has to be, and how many times it has to
+# recur in the response so far, before we treat the model as stuck in a
+# decoding repetition loop and cut the round short. 36 chars is roughly
+# "这样可以吗？如果满意的话，要不要把这个加入计划表？" -- long enough that
+# ordinary phrasing doesn't trip it, short enough to catch a loop within one
+# or two repeats instead of letting it run to MAX_TOKENS.
+LOOP_TAIL_LEN = 36
+LOOP_TAIL_REPEATS = 2
+
+
+def _is_repeating(text: str) -> bool:
+    if len(text) < LOOP_TAIL_LEN * LOOP_TAIL_REPEATS:
+        return False
+    tail = text[-LOOP_TAIL_LEN:]
+    return text.count(tail) >= LOOP_TAIL_REPEATS
 
 # Appended as the generator's very last yield when the model has signaled
 # (via the present_plan_for_confirmation / ask_add_to_plan tools below) that
@@ -303,6 +320,7 @@ def chat_reply_stream(conn, history: list[dict]):
             tools=None if advanced_this_turn else tools,
             stream=True,
             temperature=0.2,
+            max_tokens=MAX_TOKENS,
         )
 
         tool_calls_acc = {}
@@ -313,6 +331,14 @@ def chat_reply_stream(conn, history: list[dict]):
             if getattr(delta, "content", None):
                 content_parts.append(delta.content)
                 yield delta.content
+                # Qwen occasionally free-wheels into a decoding repetition
+                # loop once it has no tool call left to make (see
+                # advanced_this_turn above) — it just keeps re-emitting the
+                # same closing question forever instead of stopping. Cut the
+                # round short the moment that's detected rather than riding
+                # it out to MAX_TOKENS.
+                if _is_repeating("".join(content_parts)):
+                    break
             for tc in getattr(delta, "tool_calls", None) or []:
                 entry = tool_calls_acc.setdefault(tc.index, {"id": None, "name": None, "arguments": ""})
                 if tc.id:
