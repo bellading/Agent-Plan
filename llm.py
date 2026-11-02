@@ -396,6 +396,17 @@ def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int)
 
             elif call["name"] == "ask_add_to_plan":
                 if advanced_this_turn or history_action_type != "plan_confirm":
+                    # Setting advanced_this_turn here too (not just on
+                    # success below) matters just as much as the success
+                    # case: without it, tools stay offered for the rest of
+                    # this turn after a rejection, and the model either
+                    # retries the same blocked call or goes on to call
+                    # something else unpredictably in a later round of the
+                    # SAME turn -- which is how a stray plan_confirm/
+                    # add_confirm marker could end up attached to a later,
+                    # unrelated message (e.g. surviving all the way to a
+                    # create_task success reply).
+                    advanced_this_turn = True
                     result = {
                         "error": "顺序不对：还没有先调用 present_plan_for_confirmation 展示计划并"
                                  "得到用户在上一轮回复里明确表示满意，不能跳过这一步直接问是否加入，"
@@ -410,6 +421,7 @@ def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int)
 
             elif call["name"] == "create_task":
                 if advanced_this_turn or history_action_type != "add_confirm":
+                    advanced_this_turn = True  # see note in ask_add_to_plan above
                     result = {
                         "error": "顺序不对：还没有走完'展示计划→满意确认→询问是否加入'这个流程"
                                  "（用户还没有在单独一条新消息里明确说'加入'），不能直接创建任务，"
