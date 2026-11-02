@@ -74,7 +74,7 @@ python3 scheduler.py    # 提醒调度器，另开一个终端常驻运行
 
 "AI 问答"视图需要一个 API Key 才能对话：
 
-1. 打开 https://bailian.console.aliyun.com/ ，开通百炼/DashScope，拿到一个 `sk-...` 开头的 API Key
+1. 打开 https://bailian.console.aliyun.com/ ，开通百炼/DashScope，拿到一个 `sk-...` 开头的 API Key（当前用的是 qwen-max 模型——比 qwen-plus 贵一些，但多步骤指令遵循更稳定，调用频率是个人使用级别，差价不明显，想换回 qwen-plus 改 `llm.py` 里的 `MODEL` 常量即可）
 2. 二选一保存：
    - `export DASHSCOPE_API_KEY=sk-...`
    - 或存到 `.secrets/qwen_api_key.txt`（已加入 .gitignore）

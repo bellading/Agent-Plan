@@ -23,7 +23,7 @@ import tasks_repo
 CHAT_PROMPT_PATH = Path(__file__).parent / "prompts" / "chat_prompt.md"
 SECRET_FILE = Path(__file__).parent / ".secrets" / "qwen_api_key.txt"
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-MODEL = "qwen-plus"
+MODEL = "qwen-max"
 MAX_TOOL_ROUNDS = 5
 
 # Appended as the generator's very last yield when the model has signaled
@@ -260,6 +260,7 @@ def chat_reply_stream(conn, history: list[dict]):
             messages=messages,
             tools=tools,
             stream=True,
+            temperature=0.2,
         )
 
         content_parts = []
