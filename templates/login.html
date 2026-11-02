@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentPlan</title>
+<style>
+  :root {
+    --bg: #f6efe0; --card-bg: #fffcf5; --border: #e3d5b2; --border-strong: #d3c093;
+    --text: #4a3f2f; --text-muted: #8a7c60; --accent: #b5793f; --accent-dark: #96602c;
+    --error: #a8503a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px;
+    padding: 32px 30px; width: 320px; box-shadow: 0 4px 20px rgba(80, 60, 20, 0.08);
+  }
+  .card h1 { font-size: 18px; margin: 0 0 4px; color: var(--accent-dark); }
+  .card p.hint { font-size: 12px; color: var(--text-muted); margin: 0 0 20px; }
+  label { display: block; font-size: 13px; margin: 14px 0 6px; color: var(--text); }
+  input[type=text], input[type=password] {
+    width: 100%; border: 1.5px solid var(--border-strong); border-radius: 9px;
+    background: #fff; font-family: inherit; font-size: 14px; color: var(--text);
+    padding: 9px 11px;
+  }
+  input[type=text]:focus, input[type=password]:focus { outline: none; border-color: var(--accent); }
+  button {
+    width: 100%; margin-top: 22px; border: none; border-radius: 9px; background: var(--accent);
+    color: white; padding: 10px; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  button:hover { background: var(--accent-dark); }
+  .error { color: var(--error); font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <form class="card" method="POST">
+    {% if mode == 'setup' %}
+      <h1>设置密码</h1>
+      <p class="hint">第一次使用，先给 AgentPlan 设一个用户名和密码</p>
+      <label>用户名</label>
+      <input type="text" name="username" required autofocus>
+      <label>密码</label>
+      <input type="password" name="password" required minlength="4">
+      <label>再输一遍密码</label>
+      <input type="password" name="password2" required minlength="4">
+      <button type="submit">创建</button>
+    {% else %}
+      <h1>AgentPlan</h1>
+      <p class="hint">登录后才能查看和使用</p>
+      <label>用户名</label>
+      <input type="text" name="username" required autofocus>
+      <label>密码</label>
+      <input type="password" name="password" required>
+      <button type="submit">登录</button>
+    {% endif %}
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  </form>
+</body>
+</html>

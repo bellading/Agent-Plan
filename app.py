@@ -5,8 +5,9 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, stream_with_context, url_for
 
+import auth
 import llm
 import tasks_repo
 from db.init_db import get_conn, init_db
@@ -14,11 +15,65 @@ from db.init_db import get_conn, init_db
 TZ = ZoneInfo("Asia/Shanghai")
 
 app = Flask(__name__)
+app.secret_key = auth.get_flask_secret_key()
+
+# Paths reachable without being logged in. Everything else -- every page and
+# every /api/* route -- is gated by the before_request hook below, so a
+# stray fetch() from the frontend can never slip through un-authenticated.
+PUBLIC_PATHS = {"/login"}
+
+
+@app.before_request
+def require_login():
+    if request.path in PUBLIC_PATHS or request.path.startswith("/static/"):
+        return None
+    if not auth.has_account():
+        return redirect(url_for("login"))
+    if not session.get("logged_in"):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "not logged in"}), 401
+        return redirect(url_for("login"))
+    return None
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not auth.has_account():
+        if request.method == "POST":
+            username = (request.form.get("username") or "").strip()
+            password = request.form.get("password") or ""
+            password2 = request.form.get("password2") or ""
+            if not username or len(password) < 4:
+                return render_template("login.html", mode="setup", error="用户名不能为空，密码至少 4 位")
+            if password != password2:
+                return render_template("login.html", mode="setup", error="两次密码不一致")
+            auth.create_account(username, password)
+            session["logged_in"] = True
+            return redirect(url_for("index"))
+        return render_template("login.html", mode="setup")
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        if auth.verify_login(username, password):
+            session["logged_in"] = True
+            return redirect(url_for("index"))
+        return render_template("login.html", mode="login", error="用户名或密码不对")
+
+    if session.get("logged_in"):
+        return redirect(url_for("index"))
+    return render_template("login.html", mode="login")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", username=auth.get_username())
 
 
 @app.route("/api/tasks")

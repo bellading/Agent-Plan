@@ -206,6 +206,34 @@
   .chat-input-row { display: flex; gap: 10px; padding: 16px 28px; border-top: 1px solid var(--border); }
   .chat-input-row input[type=text] { flex: 1; padding: 11px 14px; font-size: 14px; }
 
+  /* User badge + menu, bottom-left of sidebar */
+  .user-area { margin-top: auto; position: relative; }
+  .user-badge {
+    display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 10px;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .user-badge:hover { background: rgba(181, 121, 63, 0.12); }
+  .user-avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: white;
+    display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .user-name { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar.collapsed .user-name { display: none; }
+  .sidebar.collapsed .user-badge { justify-content: center; padding: 8px 4px; }
+  .user-menu {
+    display: none; position: absolute; bottom: calc(100% + 6px); left: 0; min-width: 170px;
+    background: var(--card-bg); border: 1px solid var(--border-strong); border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(80, 60, 20, 0.15); padding: 6px; z-index: 10;
+  }
+  .user-menu.open { display: block; }
+  .user-menu-name { font-size: 12px; color: var(--text-muted); padding: 8px 10px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .user-menu button {
+    display: block; width: 100%; text-align: left; background: transparent; color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  .user-menu button:hover { background: rgba(181, 121, 63, 0.12); }
+
   /* Dialog */
   dialog#app-dialog {
     border: none; border-radius: 14px; padding: 0; max-width: 380px; width: 90%;
@@ -231,6 +259,17 @@
   </div>
   <div class="nav-item" data-view="chat" data-full="AI 问答" data-short="问答">AI 问答</div>
   <div class="nav-item active" data-view="plan" data-full="计划列表" data-short="计划">计划列表</div>
+
+  <div class="user-area">
+    <div class="user-menu" id="user-menu">
+      <div class="user-menu-name">{{ username }}</div>
+      <form method="POST" action="/logout"><button type="submit">退出登录</button></form>
+    </div>
+    <div class="user-badge" id="user-badge">
+      <div class="user-avatar">{{ username[0]|upper if username else '?' }}</div>
+      <div class="user-name">{{ username }}</div>
+    </div>
+  </div>
 </div>
 
 <div class="main">
@@ -390,6 +429,17 @@ document.getElementById('sidebar-toggle').addEventListener('click', () => {
 try {
   setSidebarCollapsed(localStorage.getItem('agentplan-sidebar-collapsed') === '1');
 } catch (e) {}
+
+// ---------- user menu ----------
+const userBadge = document.getElementById('user-badge');
+const userMenu = document.getElementById('user-menu');
+
+userBadge.addEventListener('click', e => {
+  e.stopPropagation();
+  userMenu.classList.toggle('open');
+});
+
+document.addEventListener('click', () => userMenu.classList.remove('open'));
 
 // ---------- shared helpers ----------
 function esc(v) {
