@@ -1,7 +1,9 @@
 """AgentPlan v2: two-view web app (AI 问答 chat + 计划列表 by category)."""
 
+import os
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -9,6 +11,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 
 import auth
 import llm
+import scheduler
 import tasks_repo
 from db.init_db import any_users_exist, backfill_first_owner, get_conn, init_db
 
@@ -22,6 +25,18 @@ app.secret_key = auth.get_flask_secret_key()
 # __main__ block below, so the schema/migrations must be ready before the
 # first request can possibly arrive.
 init_db(seed=False)
+
+# The reminder scheduler runs as a background thread inside this same
+# process instead of a separate deployment/service -- simpler to host (one
+# Render service, not two) at this app's scale. Only started once: under
+# Flask's debug-mode auto-reloader, the module is imported twice (a watcher
+# parent process and the actual serving child), and only the child sets
+# WERKZEUG_RUN_MAIN -- starting it in the watcher too would send every
+# reminder twice. Not a concern for gunicorn (no reloader), but the
+# Procfile also runs a single worker process so this only ever starts once
+# in production either way.
+if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    threading.Thread(target=scheduler.run_forever, daemon=True).start()
 
 # Paths reachable without being logged in. Everything else -- every page and
 # every /api/* route -- is gated by the before_request hook below, so a
@@ -107,6 +122,27 @@ def index():
     username = auth.get_username(conn, session["user_id"])
     conn.close()
     return render_template("index.html", username=username)
+
+
+@app.route("/api/settings")
+def get_settings():
+    conn = get_conn()
+    row = conn.execute("SELECT email FROM users WHERE id = ?", (session["user_id"],)).fetchone()
+    conn.close()
+    return jsonify({"email": row["email"] if row else None})
+
+
+@app.route("/api/settings/email", methods=["POST"])
+def set_settings_email():
+    data = request.get_json(force=True) or {}
+    email = (data.get("email") or "").strip()
+    if email and ("@" not in email or " " in email):
+        return jsonify({"error": "邮箱格式不对"}), 400
+    conn = get_conn()
+    conn.execute("UPDATE users SET email = ? WHERE id = ?", (email or None, session["user_id"]))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "email": email or None})
 
 
 @app.route("/api/tasks")

@@ -263,6 +263,7 @@
   <div class="user-area">
     <div class="user-menu" id="user-menu">
       <div class="user-menu-name">{{ username }}</div>
+      <button type="button" id="settings-btn">设置提醒邮箱</button>
       <form method="POST" action="/logout"><button type="submit">退出登录</button></form>
     </div>
     <div class="user-badge" id="user-badge">
@@ -383,11 +384,11 @@ function showConfirm(message) {
   });
 }
 
-function showPrompt(message, placeholder) {
+function showPrompt(message, placeholder, prefill) {
   return new Promise(resolve => {
     dialogBody.textContent = message;
     dialogInput.style.display = 'block';
-    dialogInput.value = '';
+    dialogInput.value = prefill || '';
     dialogInput.placeholder = placeholder || '';
     dialogCancel.style.display = 'inline-block';
     dialogOk.textContent = '确定';
@@ -440,6 +441,29 @@ userBadge.addEventListener('click', e => {
 });
 
 document.addEventListener('click', () => userMenu.classList.remove('open'));
+
+document.getElementById('settings-btn').addEventListener('click', async () => {
+  userMenu.classList.remove('open');
+  const res = await fetch('/api/settings');
+  const current = await res.json();
+  const email = await showPrompt(
+    '设置提醒邮箱（任务快到期时会发邮件提醒你，留空等于不提醒）',
+    'you@example.com',
+    current.email || ''
+  );
+  if (email === null) return;
+  const saveRes = await fetch('/api/settings/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!saveRes.ok) {
+    const err = await saveRes.json().catch(() => ({}));
+    showDialog(err.error || '保存失败');
+    return;
+  }
+  showDialog(email ? `提醒邮箱已设置为 ${email}` : '已清空提醒邮箱');
+});
 
 // ---------- shared helpers ----------
 function esc(v) {

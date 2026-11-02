@@ -101,6 +101,7 @@ def init_db(reset: bool = False, seed: bool = True) -> None:
         _ensure_column(conn, "chat_messages", "feedback", "feedback TEXT")
         _ensure_column(conn, "chat_messages", "action_type", "action_type TEXT")
         _ensure_column(conn, "chat_messages", "conversation_id", "conversation_id INTEGER")
+        _ensure_column(conn, "users", "email", "email TEXT")
         for table in _OWNED_TABLES:
             _ensure_column(conn, table, "owner_id", "owner_id INTEGER")
         _backfill_legacy_conversation(conn)
