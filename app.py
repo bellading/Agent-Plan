@@ -246,6 +246,27 @@ def create_conversation():
     return jsonify({"id": new_id, "title": None, "created_at": now_str, "updated_at": now_str}), 201
 
 
+@app.route("/api/conversations/<int:conversation_id>", methods=["DELETE"])
+def delete_conversation(conversation_id):
+    owner_id = session["user_id"]
+    conn = get_conn()
+    cur = conn.execute(
+        "DELETE FROM chat_conversations WHERE id = ? AND owner_id = ?", (conversation_id, owner_id)
+    )
+    if cur.rowcount == 0:
+        conn.close()
+        return jsonify({"error": "conversation not found"}), 404
+    # chat_conversations has no ON DELETE CASCADE, so its messages are
+    # cleaned up explicitly rather than left as orphaned owner_id-matching
+    # rows with a conversation_id that no longer exists.
+    conn.execute(
+        "DELETE FROM chat_messages WHERE conversation_id = ? AND owner_id = ?", (conversation_id, owner_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/chat/history")
 def chat_history():
     conversation_id = request.args.get("conversation_id", type=int)

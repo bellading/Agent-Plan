@@ -149,15 +149,22 @@
   .conv-items { display: flex; flex-direction: column; gap: 4px; }
   .conv-item {
     padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: 13px;
-    border: 1px solid transparent;
+    border: 1px solid transparent; display: flex; align-items: center; gap: 4px;
   }
   .conv-item:hover { background: rgba(181, 121, 63, 0.1); }
   .conv-item.active { background: var(--card-bg); border-color: var(--border-strong); }
+  .conv-item-main { flex: 1; min-width: 0; }
   .conv-item .conv-title {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);
   }
   .conv-item.active .conv-title { font-weight: 600; color: var(--accent-dark); }
   .conv-item .conv-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .conv-delete-btn {
+    opacity: 0; flex-shrink: 0; background: transparent; color: var(--text-muted);
+    border: none; padding: 3px 6px; font-size: 14px; line-height: 1; border-radius: 6px; cursor: pointer;
+  }
+  .conv-item:hover .conv-delete-btn { opacity: 0.6; }
+  .conv-delete-btn:hover { opacity: 1 !important; background: rgba(168, 80, 58, 0.15); color: #a8503a; }
   .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .chat-header { padding: 18px 28px 12px; border-bottom: 1px solid var(--border); }
   .chat-header h2 { margin: 0; font-size: 19px; }
@@ -753,8 +760,11 @@ async function loadConversations() {
     item.className = 'conv-item' + (c.id === currentConversationId ? ' active' : '');
     item.dataset.id = c.id;
     item.innerHTML = `
-      <div class="conv-title">${esc(c.title || '新对话')}</div>
-      <div class="conv-time">${formatConvTime(c.updated_at)}</div>
+      <div class="conv-item-main">
+        <div class="conv-title">${esc(c.title || '新对话')}</div>
+        <div class="conv-time">${formatConvTime(c.updated_at)}</div>
+      </div>
+      <button type="button" class="conv-delete-btn" title="删除会话">×</button>
     `;
     convItems.appendChild(item);
   }
@@ -784,10 +794,26 @@ document.getElementById('conv-new-btn').addEventListener('click', async () => {
   await selectConversation(newId);
 });
 
-convItems.addEventListener('click', e => {
+convItems.addEventListener('click', async e => {
   const item = e.target.closest('.conv-item');
   if (!item) return;
   const id = Number(item.dataset.id);
+
+  if (e.target.closest('.conv-delete-btn')) {
+    const title = item.querySelector('.conv-title').textContent;
+    const confirmed = await showConfirm(`确定要删除"${title}"这个会话吗？删除后无法恢复。`);
+    if (!confirmed) return;
+    const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showDialog(err.error || '删除失败');
+      return;
+    }
+    if (id === currentConversationId) currentConversationId = null;
+    await loadConversations();
+    return;
+  }
+
   if (id !== currentConversationId) selectConversation(id);
 });
 
