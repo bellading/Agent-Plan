@@ -257,18 +257,23 @@ def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
         return {"error": str(exc)}
 
 
-def _last_action_type(conn) -> str | None:
+def _last_action_type(conn, conversation_id) -> str | None:
     row = conn.execute(
-        "SELECT action_type FROM chat_messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1"
+        "SELECT action_type FROM chat_messages WHERE role = 'assistant' AND conversation_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (conversation_id,),
     ).fetchone()
     return row["action_type"] if row else None
 
 
-def chat_reply_stream(conn, history: list[dict]):
+def chat_reply_stream(conn, history: list[dict], conversation_id):
     """Generator yielding the assistant's reply text as it streams in.
 
-    history is the full message list (role/content dicts), ending with the
-    latest user message. Tool-calling rounds (the model deciding to
+    history is the full message list (role/content dicts) for this one
+    conversation branch, ending with the latest user message. conversation_id
+    scopes the plan-confirm/add-confirm ordering guard below to this branch
+    only, so a half-finished confirmation flow in one conversation can never
+    leak into a different one. Tool-calling rounds (the model deciding to
     create/update/delete/list tasks) are executed silently and never
     yielded — only the final natural-language answer streams out, so the
     caller can join everything yielded to get the complete reply text.
@@ -299,7 +304,7 @@ def chat_reply_stream(conn, history: list[dict]):
     # ask_add_to_plan inside a single reply: the guard below must only trust
     # state the user's own prior turn actually established, not state this
     # turn just invented a moment ago.
-    history_action_type = _last_action_type(conn)
+    history_action_type = _last_action_type(conn, conversation_id)
     # True once ANY of the three confirmation-flow tools has been called
     # (successfully or not) during THIS turn. Blocks every further
     # confirmation-flow call in the same turn, independent of

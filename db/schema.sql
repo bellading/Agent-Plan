@@ -27,6 +27,21 @@ CREATE TABLE IF NOT EXISTS user_profile (
     availability TEXT
 );
 
+-- A chat "branch" / thread in AI 问答. Each conversation has its own
+-- independent message history and its own plan-confirm/add-confirm state
+-- (see chat_messages.action_type below), so switching to a new conversation
+-- never carries over an unrelated one's half-finished confirmation flow.
+-- title is NULL until the conversation's first message is sent, at which
+-- point it's set from that message's text; updated_at is bumped on every
+-- new message so the branch list can sort most-recently-active first.
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL DEFAULT 'bella',
+    title TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- AI问答 conversation history, so the chat view survives a page reload.
 -- action_type tags an assistant row with which confirmation step it was
 -- ('plan_confirm' or 'add_confirm'), so chat_reply_stream can enforce the
@@ -35,6 +50,7 @@ CREATE TABLE IF NOT EXISTS user_profile (
 CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL DEFAULT 'bella',
+    conversation_id INTEGER REFERENCES chat_conversations(id),
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
     feedback TEXT CHECK (feedback IN ('up', 'down')),

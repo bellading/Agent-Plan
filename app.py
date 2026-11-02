@@ -96,11 +96,41 @@ def create_category():
     return jsonify({"ok": True}), 201
 
 
-@app.route("/api/chat/history")
-def chat_history():
+@app.route("/api/conversations")
+def list_conversations():
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, role, content, feedback, created_at FROM chat_messages ORDER BY id"
+        "SELECT id, title, created_at, updated_at FROM chat_conversations "
+        "ORDER BY updated_at DESC, id DESC"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route("/api/conversations", methods=["POST"])
+def create_conversation():
+    now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (NULL, ?, ?)",
+        (now_str, now_str),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return jsonify({"id": new_id, "title": None, "created_at": now_str, "updated_at": now_str}), 201
+
+
+@app.route("/api/chat/history")
+def chat_history():
+    conversation_id = request.args.get("conversation_id", type=int)
+    if not conversation_id:
+        return jsonify({"error": "conversation_id is required"}), 400
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, role, content, feedback, created_at FROM chat_messages "
+        "WHERE conversation_id = ? ORDER BY id",
+        (conversation_id,),
     ).fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
@@ -129,8 +159,11 @@ def set_chat_feedback(message_id):
 def chat():
     data = request.get_json(force=True) or {}
     text = (data.get("text") or "").strip()
+    conversation_id = data.get("conversation_id")
     if not text:
         return jsonify({"error": "text is required"}), 400
+    if not conversation_id:
+        return jsonify({"error": "conversation_id is required"}), 400
 
     if not llm.has_api_key():
         return jsonify({
@@ -138,8 +171,16 @@ def chat():
         }), 502
 
     conn = get_conn()
+    conv_row = conn.execute(
+        "SELECT id FROM chat_conversations WHERE id = ?", (conversation_id,)
+    ).fetchone()
+    if not conv_row:
+        conn.close()
+        return jsonify({"error": "conversation not found"}), 404
+
     history_rows = conn.execute(
-        "SELECT role, content FROM chat_messages ORDER BY id"
+        "SELECT role, content FROM chat_messages WHERE conversation_id = ? ORDER BY id",
+        (conversation_id,),
     ).fetchall()
     history = [dict(row) for row in history_rows]
     history.append({"role": "user", "content": text})
@@ -147,7 +188,7 @@ def chat():
     def generate():
         reply_parts = []
         try:
-            for piece in llm.chat_reply_stream(conn, history):
+            for piece in llm.chat_reply_stream(conn, history, conversation_id):
                 reply_parts.append(piece)
                 yield piece
         except Exception as exc:
@@ -167,13 +208,22 @@ def chat():
             reply_text = re.sub(r"\n?" + llm.ACTION_MARKER_RE + r"\s*$", "", raw_reply)
             now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
-                "INSERT INTO chat_messages (role, content, created_at) VALUES ('user', ?, ?)",
-                (text, now_str),
+                "INSERT INTO chat_messages (role, content, conversation_id, created_at) "
+                "VALUES ('user', ?, ?, ?)",
+                (text, conversation_id, now_str),
             )
             conn.execute(
-                "INSERT INTO chat_messages (role, content, action_type, created_at) "
-                "VALUES ('assistant', ?, ?, ?)",
-                (reply_text, action_type, now_str),
+                "INSERT INTO chat_messages (role, content, action_type, conversation_id, created_at) "
+                "VALUES ('assistant', ?, ?, ?, ?)",
+                (reply_text, action_type, conversation_id, now_str),
+            )
+            # bump updated_at so this conversation floats to the top of the
+            # branch list, and give it a title from the first real message
+            # once it has one (COALESCE leaves an existing title alone).
+            conn.execute(
+                "UPDATE chat_conversations SET updated_at = ?, title = COALESCE(title, ?) "
+                "WHERE id = ?",
+                (now_str, text[:18], conversation_id),
             )
             conn.commit()
             conn.close()

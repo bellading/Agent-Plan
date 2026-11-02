@@ -135,6 +135,30 @@
 
   /* Chat view */
   #view-chat { padding: 0; }
+  .chat-layout { flex: 1; display: flex; min-height: 0; }
+  .chat-conv-list {
+    width: 180px; flex-shrink: 0; border-right: 1px solid var(--border);
+    padding: 14px 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  }
+  .conv-new-btn {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    background: transparent; border: 1.5px dashed var(--border-strong); color: var(--accent-dark);
+    border-radius: 9px; padding: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .conv-new-btn:hover { background: rgba(181, 121, 63, 0.1); }
+  .conv-items { display: flex; flex-direction: column; gap: 4px; }
+  .conv-item {
+    padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: 13px;
+    border: 1px solid transparent;
+  }
+  .conv-item:hover { background: rgba(181, 121, 63, 0.1); }
+  .conv-item.active { background: var(--card-bg); border-color: var(--border-strong); }
+  .conv-item .conv-title {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);
+  }
+  .conv-item.active .conv-title { font-weight: 600; color: var(--accent-dark); }
+  .conv-item .conv-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .chat-header { padding: 18px 28px 12px; border-bottom: 1px solid var(--border); }
   .chat-header h2 { margin: 0; font-size: 19px; }
   .chat-header p { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); }
@@ -247,15 +271,23 @@
   </div>
 
   <div class="view" id="view-chat">
-    <div class="chat-header">
-      <h2>AI 问答</h2>
-      <p>随便聊聊你要做的事，我会追问清楚时间、给建议，聊明白了再帮你记下来</p>
-    </div>
-    <div class="chat-messages" id="chat-messages"></div>
-    <div class="chat-input-row">
-      <input id="chat-input" type="text" placeholder="说说你想做的事…">
-      <button id="chat-send-btn">发送</button>
-      <button id="chat-stop-btn" class="stop-btn" style="display:none">停止</button>
+    <div class="chat-layout">
+      <div class="chat-conv-list">
+        <button class="conv-new-btn" id="conv-new-btn">+ 新对话</button>
+        <div class="conv-items" id="conv-items"></div>
+      </div>
+      <div class="chat-main">
+        <div class="chat-header">
+          <h2>AI 问答</h2>
+          <p>随便聊聊你要做的事，我会追问清楚时间、给建议，聊明白了再帮你记下来</p>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" type="text" placeholder="说说你想做的事…">
+          <button id="chat-send-btn">发送</button>
+          <button id="chat-stop-btn" class="stop-btn" style="display:none">停止</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -620,6 +652,71 @@ document.getElementById('add-task-btn').addEventListener('click', async () => {
   }
 });
 
+// ---------- chat conversations ----------
+const convItems = document.getElementById('conv-items');
+let currentConversationId = null;
+
+function formatConvTime(stored) {
+  const [datePart, timePart] = (stored || '').split(' ');
+  if (!datePart || !timePart) return '';
+  const [, month, day] = datePart.split('-');
+  const [hh, mm] = timePart.split(':');
+  return `${month}-${day} ${hh}:${mm}`;
+}
+
+async function loadConversations() {
+  const res = await fetch('/api/conversations');
+  let conversations = await res.json();
+
+  if (conversations.length === 0) {
+    const newId = await createConversation();
+    conversations = [{ id: newId, title: null, created_at: null, updated_at: null }];
+  }
+
+  convItems.innerHTML = '';
+  for (const c of conversations) {
+    const item = document.createElement('div');
+    item.className = 'conv-item' + (c.id === currentConversationId ? ' active' : '');
+    item.dataset.id = c.id;
+    item.innerHTML = `
+      <div class="conv-title">${esc(c.title || '新对话')}</div>
+      <div class="conv-time">${formatConvTime(c.updated_at)}</div>
+    `;
+    convItems.appendChild(item);
+  }
+
+  if (currentConversationId === null) {
+    await selectConversation(conversations[0].id);
+  }
+}
+
+async function createConversation() {
+  const res = await fetch('/api/conversations', { method: 'POST' });
+  const data = await res.json();
+  return data.id;
+}
+
+async function selectConversation(id) {
+  currentConversationId = id;
+  convItems.querySelectorAll('.conv-item').forEach(item => {
+    item.classList.toggle('active', Number(item.dataset.id) === id);
+  });
+  await loadChatHistory();
+}
+
+document.getElementById('conv-new-btn').addEventListener('click', async () => {
+  const newId = await createConversation();
+  await loadConversations();
+  await selectConversation(newId);
+});
+
+convItems.addEventListener('click', e => {
+  const item = e.target.closest('.conv-item');
+  if (!item) return;
+  const id = Number(item.dataset.id);
+  if (id !== currentConversationId) selectConversation(id);
+});
+
 // ---------- chat ----------
 const chatMessages = document.getElementById('chat-messages');
 
@@ -738,7 +835,8 @@ function appendMessage(role, content, meta) {
 }
 
 async function loadChatHistory() {
-  const res = await fetch('/api/chat/history');
+  if (currentConversationId === null) return;
+  const res = await fetch(`/api/chat/history?conversation_id=${currentConversationId}`);
   const history = await res.json();
   chatMessages.innerHTML = '';
   if (history.length === 0) {
@@ -774,7 +872,7 @@ async function sendChat(presetText) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, conversation_id: currentConversationId }),
       signal: controller.signal,
     });
 
@@ -807,6 +905,7 @@ async function sendChat(presetText) {
     const cleanText = full.replace(ACTION_MARKER_RE, '');
     textEl.innerHTML = cleanText ? renderMarkdown(cleanText) : '（没有收到回复）';
     await loadChatHistory();
+    await loadConversations();
     if (match) {
       const lastMsg = chatMessages.querySelector('.msg.assistant:last-child');
       if (lastMsg) renderChoiceButtons(lastMsg, match[1]);
@@ -835,7 +934,7 @@ document.getElementById('chat-input').addEventListener('keydown', e => {
 });
 
 loadCategoryGrid();
-loadChatHistory();
+loadConversations();
 </script>
 </body>
 </html>
