@@ -59,6 +59,29 @@ def _backfill_legacy_conversation(conn: sqlite3.Connection) -> None:
     )
 
 
+# Tables that hold per-user data and so need an owner_id column added when
+# migrating a database created before AgentPlan had user accounts at all.
+_OWNED_TABLES = ["tasks", "categories", "chat_conversations", "chat_messages", "user_profile"]
+
+
+def any_users_exist(conn: sqlite3.Connection) -> bool:
+    return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+
+
+def backfill_first_owner(conn: sqlite3.Connection, user_id: int) -> None:
+    """Called once, right after the very first account is ever registered:
+    assigns every pre-existing row that has no owner (owner_id IS NULL --
+    data from before AgentPlan had accounts, or a legacy user_id TEXT column
+    with no matching owner_id yet) to that first account, instead of it
+    silently becoming invisible once every query starts filtering by
+    owner_id. Safe to call only once -- later registrations must NOT touch
+    other people's already-owned rows, so the caller only invokes this when
+    any_users_exist() was false right before creating the new account.
+    """
+    for table in _OWNED_TABLES:
+        conn.execute(f"UPDATE {table} SET owner_id = ? WHERE owner_id IS NULL", (user_id,))
+
+
 def init_db(reset: bool = False, seed: bool = True) -> None:
     """Create the schema and, only on a genuinely empty tasks table, load the
     seed data. Safe to call on every startup: never re-runs seed.sql (which
@@ -73,6 +96,8 @@ def init_db(reset: bool = False, seed: bool = True) -> None:
         _ensure_column(conn, "chat_messages", "feedback", "feedback TEXT")
         _ensure_column(conn, "chat_messages", "action_type", "action_type TEXT")
         _ensure_column(conn, "chat_messages", "conversation_id", "conversation_id INTEGER")
+        for table in _OWNED_TABLES:
+            _ensure_column(conn, table, "owner_id", "owner_id INTEGER")
         _backfill_legacy_conversation(conn)
         if seed:
             row_count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]

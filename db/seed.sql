@@ -1,19 +1,22 @@
--- First real tasks, triaged 2026-09-18 (see prompts/triage_prompt.md v1.1)
+-- Dev/test fixture data only -- not used in production (app.py calls
+-- init_db(seed=False)). owner_id=1 assumes a users row with id 1 already
+-- exists (e.g. INSERT INTO users (id, username, password_hash) VALUES
+-- (1, 'test', '...') run first), which test scripts set up themselves.
 
 INSERT INTO tasks (
-    user_id, title, notes, category, type,
+    owner_id, title, notes, category, type,
     importance, urgency, action, status,
     remind_at, deadline
 ) VALUES
-('bella', '投递虾皮·风险策略分析师', '', '工作', 'single',
+(1, '投递虾皮·风险策略分析师', '', '工作', 'single',
  'high', 'high', 'now', 'todo',
  '2026-09-18 19:00', '2026-09-20 00:00'),
 
-('bella', '投递国泰君安·交易风控岗', '', '工作', 'single',
+(1, '投递国泰君安·交易风控岗', '', '工作', 'single',
  'high', 'high', 'now', 'todo',
  '2026-09-18 19:00', '2026-09-20 00:00'),
 
-('bella', 'SQL 熟练度练习计划（一周内达到数据分析师面试水平）',
+(1, 'SQL 熟练度练习计划（一周内达到数据分析师面试水平）',
 '执行时间：每天下午 14:00-17:00
 
 7天冲刺计划：

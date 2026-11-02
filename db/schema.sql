@@ -1,8 +1,19 @@
--- AgentPlan v1 schema
+-- AgentPlan schema -- multi-user
+
+-- One row per registered person. There's no admin/invite concept yet:
+-- anyone who can reach the site can register their own account, and every
+-- other table's owner_id scopes that account's data away from everyone
+-- else's.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL DEFAULT 'bella',
+    owner_id INTEGER NOT NULL REFERENCES users(id),
     title TEXT NOT NULL,
     notes TEXT,
     category TEXT,
@@ -19,10 +30,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     completed_at TEXT
 );
 
--- v1 single-user context for the triage prompt; user_id kept so adding
--- a second user later is additive, not a schema change.
+-- Per-user context for the AI 问答 prompt (focus / availability). Nothing
+-- writes to this yet -- it's read with a fallback to "未设置" -- but it's
+-- kept per-owner so a future settings UI has somewhere to put it.
 CREATE TABLE IF NOT EXISTS user_profile (
-    user_id TEXT PRIMARY KEY,
+    owner_id INTEGER PRIMARY KEY REFERENCES users(id),
     focus TEXT,
     availability TEXT
 );
@@ -36,7 +48,7 @@ CREATE TABLE IF NOT EXISTS user_profile (
 -- new message so the branch list can sort most-recently-active first.
 CREATE TABLE IF NOT EXISTS chat_conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL DEFAULT 'bella',
+    owner_id INTEGER NOT NULL REFERENCES users(id),
     title TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -49,7 +61,7 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
 -- remember it.
 CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL DEFAULT 'bella',
+    owner_id INTEGER NOT NULL REFERENCES users(id),
     conversation_id INTEGER REFERENCES chat_conversations(id),
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
@@ -58,15 +70,15 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- 计划列表 category tiles. sort_order keeps 其他 pinned last; user-added
--- custom categories (the "+" tile) land in between. INSERT OR IGNORE below
--- runs on every startup (schema.sql is executed unconditionally), so
--- existing databases get the defaults too, not just fresh installs.
+-- 计划列表 category tiles, per owner -- one person's custom category never
+-- shows up in someone else's grid. sort_order keeps 其他 pinned last;
+-- defaults are seeded per-account at registration time (see
+-- tasks_repo.seed_default_categories), not here, since there's no single
+-- "the" user anymore to seed them for at schema-creation time.
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    sort_order INTEGER NOT NULL
+    owner_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    UNIQUE (owner_id, name)
 );
-
-INSERT OR IGNORE INTO categories (name, sort_order) VALUES
-    ('学习', 10), ('工作', 20), ('运动', 30), ('食物', 40), ('其他', 999999);

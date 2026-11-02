@@ -185,17 +185,17 @@ def _load_chat_prompt(context: dict) -> str:
     )
 
 
-def get_user_context(conn) -> dict:
+def get_user_context(conn, owner_id: int) -> dict:
     profile = conn.execute(
-        "SELECT focus, availability FROM user_profile WHERE user_id = 'bella'"
+        "SELECT focus, availability FROM user_profile WHERE owner_id = ?", (owner_id,)
     ).fetchone()
     focus = (profile["focus"] if profile and profile["focus"] else None) or "未设置"
     availability = (profile["availability"] if profile and profile["availability"] else None) or "未设置"
 
-    open_rows = tasks_repo.list_open_tasks(conn)
+    open_rows = tasks_repo.list_open_tasks(conn, owner_id)
     open_count = len(open_rows)
     open_summary = "、".join(r["title"] for r in open_rows[:10]) or "无"
-    categories = tasks_repo.list_categories(conn)
+    categories = tasks_repo.list_categories(conn, owner_id)
 
     return {
         "focus": focus,
@@ -223,7 +223,7 @@ def _sanitize_task_fields(args: dict, categories: list[str]) -> dict:
     return fields
 
 
-def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
+def _execute_tool(conn, name: str, args: dict, categories: list[str], owner_id: int) -> dict:
     try:
         if name == "create_task":
             title = (args.get("title") or "").strip()
@@ -231,7 +231,7 @@ def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
                 return {"error": "title is required"}
             fields = _sanitize_task_fields(args, categories)
             fields["title"] = title
-            new_id = tasks_repo.insert_task(conn, fields)
+            new_id = tasks_repo.insert_task(conn, owner_id, fields)
             return {"ok": True, "id": new_id}
 
         if name == "update_task":
@@ -239,18 +239,18 @@ def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
             if task_id is None:
                 return {"error": "task_id is required"}
             fields = _sanitize_task_fields(args, categories)
-            updated = tasks_repo.update_task(conn, int(task_id), fields)
+            updated = tasks_repo.update_task(conn, owner_id, int(task_id), fields)
             return {"ok": updated}
 
         if name == "delete_task":
             task_id = args.get("task_id")
             if task_id is None:
                 return {"error": "task_id is required"}
-            deleted = tasks_repo.delete_task(conn, int(task_id))
+            deleted = tasks_repo.delete_task(conn, owner_id, int(task_id))
             return {"ok": deleted}
 
         if name == "list_open_tasks":
-            return {"tasks": tasks_repo.list_open_tasks(conn)}
+            return {"tasks": tasks_repo.list_open_tasks(conn, owner_id)}
 
         return {"error": f"unknown tool: {name}"}
     except sqlite3.IntegrityError as exc:
@@ -266,17 +266,19 @@ def _last_action_type(conn, conversation_id) -> str | None:
     return row["action_type"] if row else None
 
 
-def chat_reply_stream(conn, history: list[dict], conversation_id):
+def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int):
     """Generator yielding the assistant's reply text as it streams in.
 
     history is the full message list (role/content dicts) for this one
     conversation branch, ending with the latest user message. conversation_id
     scopes the plan-confirm/add-confirm ordering guard below to this branch
     only, so a half-finished confirmation flow in one conversation can never
-    leak into a different one. Tool-calling rounds (the model deciding to
-    create/update/delete/list tasks) are executed silently and never
-    yielded — only the final natural-language answer streams out, so the
-    caller can join everything yielded to get the complete reply text.
+    leak into a different one. owner_id scopes every tool call (create/
+    update/delete/list tasks) to that person's own tasks and categories, so
+    one person's AI 问答 session can never read or touch another's data.
+    Tool-calling rounds are executed silently and never yielded — only the
+    final natural-language answer streams out, so the caller can join
+    everything yielded to get the complete reply text.
 
     The plan-confirm -> add-confirm -> create_task order is enforced here,
     not just requested in the prompt: ask_add_to_plan is rejected unless the
@@ -293,7 +295,7 @@ def chat_reply_stream(conn, history: list[dict], conversation_id):
         )
 
     client = OpenAI(api_key=api_key, base_url=BASE_URL)
-    context = get_user_context(conn)
+    context = get_user_context(conn, owner_id)
     system_prompt = _load_chat_prompt(context)
     tools = _build_tools(context["categories"])
     messages = [{"role": "system", "content": system_prompt}, *history]
@@ -420,14 +422,14 @@ def chat_reply_stream(conn, history: list[dict], conversation_id):
                         args = json.loads(call["arguments"] or "{}")
                     except json.JSONDecodeError:
                         args = {}
-                    result = _execute_tool(conn, "create_task", args, context["categories"])
+                    result = _execute_tool(conn, "create_task", args, context["categories"], owner_id)
 
             else:
                 try:
                     args = json.loads(call["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = _execute_tool(conn, call["name"], args, context["categories"])
+                result = _execute_tool(conn, call["name"], args, context["categories"], owner_id)
 
             messages.append({
                 "role": "tool",

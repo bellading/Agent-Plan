@@ -35,30 +35,22 @@
   }
   button:hover { background: var(--accent-dark); }
   .error { color: var(--error); font-size: 13px; margin-top: 12px; }
+  .switch-link { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 16px; }
+  .switch-link a { color: var(--accent); text-decoration: none; }
+  .switch-link a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
   <form class="card" method="POST">
-    {% if mode == 'setup' %}
-      <h1>设置密码</h1>
-      <p class="hint">第一次使用，先给 AgentPlan 设一个用户名和密码</p>
-      <label>用户名</label>
-      <input type="text" name="username" required autofocus>
-      <label>密码</label>
-      <input type="password" name="password" required minlength="4">
-      <label>再输一遍密码</label>
-      <input type="password" name="password2" required minlength="4">
-      <button type="submit">创建</button>
-    {% else %}
-      <h1>AgentPlan</h1>
-      <p class="hint">登录后才能查看和使用</p>
-      <label>用户名</label>
-      <input type="text" name="username" required autofocus>
-      <label>密码</label>
-      <input type="password" name="password" required>
-      <button type="submit">登录</button>
-    {% endif %}
+    <h1>AgentPlan</h1>
+    <p class="hint">登录后才能查看和使用</p>
+    <label>用户名</label>
+    <input type="text" name="username" required autofocus>
+    <label>密码</label>
+    <input type="password" name="password" required>
+    <button type="submit">登录</button>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <div class="switch-link">还没有账号？<a href="/register">去注册</a></div>
   </form>
 </body>
 </html>

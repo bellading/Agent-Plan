@@ -10,7 +10,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 import auth
 import llm
 import tasks_repo
-from db.init_db import get_conn, init_db
+from db.init_db import any_users_exist, backfill_first_owner, get_conn, init_db
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -20,49 +20,73 @@ app.secret_key = auth.get_flask_secret_key()
 # Paths reachable without being logged in. Everything else -- every page and
 # every /api/* route -- is gated by the before_request hook below, so a
 # stray fetch() from the frontend can never slip through un-authenticated.
-PUBLIC_PATHS = {"/login"}
+PUBLIC_PATHS = {"/login", "/register"}
 
 
 @app.before_request
 def require_login():
     if request.path in PUBLIC_PATHS or request.path.startswith("/static/"):
         return None
-    if not auth.has_account():
-        return redirect(url_for("login"))
-    if not session.get("logged_in"):
+    if not session.get("user_id"):
         if request.path.startswith("/api/"):
             return jsonify({"error": "not logged in"}), 401
         return redirect(url_for("login"))
     return None
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if not auth.has_account():
-        if request.method == "POST":
-            username = (request.form.get("username") or "").strip()
-            password = request.form.get("password") or ""
-            password2 = request.form.get("password2") or ""
-            if not username or len(password) < 4:
-                return render_template("login.html", mode="setup", error="用户名不能为空，密码至少 4 位")
-            if password != password2:
-                return render_template("login.html", mode="setup", error="两次密码不一致")
-            auth.create_account(username, password)
-            session["logged_in"] = True
-            return redirect(url_for("index"))
-        return render_template("login.html", mode="setup")
-
+@app.route("/register", methods=["GET", "POST"])
+def register():
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
-        if auth.verify_login(username, password):
-            session["logged_in"] = True
-            return redirect(url_for("index"))
-        return render_template("login.html", mode="login", error="用户名或密码不对")
+        password2 = request.form.get("password2") or ""
+        if not username or len(password) < 4:
+            return render_template("register.html", error="用户名不能为空，密码至少 4 位")
+        if password != password2:
+            return render_template("register.html", error="两次密码不一致")
 
-    if session.get("logged_in"):
+        conn = get_conn()
+        is_first_ever = not any_users_exist(conn)
+        try:
+            new_id = auth.create_user(conn, username, password)
+        except sqlite3.IntegrityError:
+            conn.close()
+            return render_template("register.html", error="用户名已被占用，换一个试试")
+
+        if is_first_ever:
+            # The very first account ever created on this database inherits
+            # any pre-existing data (tasks/conversations/etc. with no
+            # owner yet) -- e.g. Bella's own data from before AgentPlan had
+            # accounts at all. Every account after this one starts empty.
+            backfill_first_owner(conn, new_id)
+        tasks_repo.seed_default_categories(conn, new_id)
+        conn.commit()
+        conn.close()
+
+        session["user_id"] = new_id
         return redirect(url_for("index"))
-    return render_template("login.html", mode="login")
+
+    if session.get("user_id"):
+        return redirect(url_for("index"))
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        conn = get_conn()
+        user_id = auth.verify_user(conn, username, password)
+        conn.close()
+        if user_id is not None:
+            session["user_id"] = user_id
+            return redirect(url_for("index"))
+        return render_template("login.html", error="用户名或密码不对")
+
+    if session.get("user_id"):
+        return redirect(url_for("index"))
+    return render_template("login.html")
 
 
 @app.route("/logout", methods=["POST"])
@@ -73,13 +97,16 @@ def logout():
 
 @app.route("/")
 def index():
-    return render_template("index.html", username=auth.get_username())
+    conn = get_conn()
+    username = auth.get_username(conn, session["user_id"])
+    conn.close()
+    return render_template("index.html", username=username)
 
 
 @app.route("/api/tasks")
 def list_tasks():
     conn = get_conn()
-    tasks = tasks_repo.list_tasks(conn)
+    tasks = tasks_repo.list_tasks(conn, session["user_id"])
     conn.close()
     return jsonify(tasks)
 
@@ -98,7 +125,7 @@ def create_task():
     fields = {**data, "title": title, "type": task_type}
     conn = get_conn()
     try:
-        new_id = tasks_repo.insert_task(conn, fields)
+        new_id = tasks_repo.insert_task(conn, session["user_id"], fields)
     except sqlite3.IntegrityError as exc:
         return jsonify({"error": str(exc)}), 400
     finally:
@@ -111,7 +138,7 @@ def update_task(task_id):
     data = request.get_json(force=True) or {}
     conn = get_conn()
     try:
-        updated = tasks_repo.update_task(conn, task_id, data)
+        updated = tasks_repo.update_task(conn, session["user_id"], task_id, data)
     except sqlite3.IntegrityError as exc:
         return jsonify({"error": str(exc)}), 400
     finally:
@@ -124,7 +151,7 @@ def update_task(task_id):
 @app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
 def delete_task(task_id):
     conn = get_conn()
-    deleted = tasks_repo.delete_task(conn, task_id)
+    deleted = tasks_repo.delete_task(conn, session["user_id"], task_id)
     conn.close()
     if not deleted:
         return jsonify({"error": "task not found"}), 404
@@ -134,7 +161,7 @@ def delete_task(task_id):
 @app.route("/api/categories")
 def list_categories():
     conn = get_conn()
-    counts = tasks_repo.category_counts(conn)
+    counts = tasks_repo.category_counts(conn, session["user_id"])
     conn.close()
     return jsonify(counts)
 
@@ -146,7 +173,7 @@ def create_category():
     if not name:
         return jsonify({"error": "name is required"}), 400
     conn = get_conn()
-    tasks_repo.add_category(conn, name)
+    tasks_repo.add_category(conn, session["user_id"], name)
     conn.close()
     return jsonify({"ok": True}), 201
 
@@ -156,7 +183,8 @@ def list_conversations():
     conn = get_conn()
     rows = conn.execute(
         "SELECT id, title, created_at, updated_at FROM chat_conversations "
-        "ORDER BY updated_at DESC, id DESC"
+        "WHERE owner_id = ? ORDER BY updated_at DESC, id DESC",
+        (session["user_id"],),
     ).fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
@@ -167,8 +195,8 @@ def create_conversation():
     now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (NULL, ?, ?)",
-        (now_str, now_str),
+        "INSERT INTO chat_conversations (owner_id, title, created_at, updated_at) VALUES (?, NULL, ?, ?)",
+        (session["user_id"], now_str, now_str),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -184,8 +212,8 @@ def chat_history():
     conn = get_conn()
     rows = conn.execute(
         "SELECT id, role, content, feedback, created_at FROM chat_messages "
-        "WHERE conversation_id = ? ORDER BY id",
-        (conversation_id,),
+        "WHERE conversation_id = ? AND owner_id = ? ORDER BY id",
+        (conversation_id, session["user_id"]),
     ).fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
@@ -200,8 +228,8 @@ def set_chat_feedback(message_id):
 
     conn = get_conn()
     cur = conn.execute(
-        "UPDATE chat_messages SET feedback = ? WHERE id = ? AND role = 'assistant'",
-        (feedback, message_id),
+        "UPDATE chat_messages SET feedback = ? WHERE id = ? AND owner_id = ? AND role = 'assistant'",
+        (feedback, message_id, session["user_id"]),
     )
     conn.commit()
     conn.close()
@@ -215,6 +243,7 @@ def chat():
     data = request.get_json(force=True) or {}
     text = (data.get("text") or "").strip()
     conversation_id = data.get("conversation_id")
+    owner_id = session["user_id"]
     if not text:
         return jsonify({"error": "text is required"}), 400
     if not conversation_id:
@@ -227,15 +256,15 @@ def chat():
 
     conn = get_conn()
     conv_row = conn.execute(
-        "SELECT id FROM chat_conversations WHERE id = ?", (conversation_id,)
+        "SELECT id FROM chat_conversations WHERE id = ? AND owner_id = ?", (conversation_id, owner_id)
     ).fetchone()
     if not conv_row:
         conn.close()
         return jsonify({"error": "conversation not found"}), 404
 
     history_rows = conn.execute(
-        "SELECT role, content FROM chat_messages WHERE conversation_id = ? ORDER BY id",
-        (conversation_id,),
+        "SELECT role, content FROM chat_messages WHERE conversation_id = ? AND owner_id = ? ORDER BY id",
+        (conversation_id, owner_id),
     ).fetchall()
     history = [dict(row) for row in history_rows]
     history.append({"role": "user", "content": text})
@@ -243,7 +272,7 @@ def chat():
     def generate():
         reply_parts = []
         try:
-            for piece in llm.chat_reply_stream(conn, history, conversation_id):
+            for piece in llm.chat_reply_stream(conn, history, conversation_id, owner_id):
                 reply_parts.append(piece)
                 yield piece
         except Exception as exc:
@@ -263,14 +292,14 @@ def chat():
             reply_text = re.sub(r"\n?" + llm.ACTION_MARKER_RE + r"\s*$", "", raw_reply)
             now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
-                "INSERT INTO chat_messages (role, content, conversation_id, created_at) "
-                "VALUES ('user', ?, ?, ?)",
-                (text, conversation_id, now_str),
+                "INSERT INTO chat_messages (role, content, owner_id, conversation_id, created_at) "
+                "VALUES ('user', ?, ?, ?, ?)",
+                (text, owner_id, conversation_id, now_str),
             )
             conn.execute(
-                "INSERT INTO chat_messages (role, content, action_type, conversation_id, created_at) "
-                "VALUES ('assistant', ?, ?, ?, ?)",
-                (reply_text, action_type, conversation_id, now_str),
+                "INSERT INTO chat_messages (role, content, action_type, owner_id, conversation_id, created_at) "
+                "VALUES ('assistant', ?, ?, ?, ?, ?)",
+                (reply_text, action_type, owner_id, conversation_id, now_str),
             )
             # bump updated_at so this conversation floats to the top of the
             # branch list, and give it a title from the first real message
@@ -287,5 +316,5 @@ def chat():
 
 
 if __name__ == "__main__":
-    init_db(seed=True)
+    init_db(seed=False)
     app.run(debug=True, port=5000)
