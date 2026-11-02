@@ -276,6 +276,16 @@ def chat_reply_stream(conn, history: list[dict]):
     # state the user's own prior turn actually established, not state this
     # turn just invented a moment ago.
     history_action_type = _last_action_type(conn)
+    # True once ANY of the three confirmation-flow tools has been called
+    # (successfully or not) during THIS turn. Blocks every further
+    # confirmation-flow call in the same turn, independent of
+    # history_action_type — this is what stops the model from re-presenting
+    # the plan twice in one reply (history_action_type alone can't catch
+    # that: calling present_plan_for_confirmation doesn't change it), and
+    # also stops it from riding a stale plan_confirm/add_confirm left over
+    # from an earlier, abandoned turn straight through to the next step
+    # without the user ever actually replying in between.
+    advanced_this_turn = False
 
     for _ in range(MAX_TOOL_ROUNDS):
         stream = client.chat.completions.create(
@@ -323,11 +333,20 @@ def chat_reply_stream(conn, history: list[dict]):
         })
         for call in ordered_calls:
             if call["name"] == "present_plan_for_confirmation":
-                pending_action = "plan_confirm"
-                result = {"ok": True}
+                if advanced_this_turn:
+                    result = {
+                        "error": "这次回复里已经调用过确认流程的工具了，不要再重复调用、也不要把计划"
+                                 "再完整写一遍——如果是因为上一个工具调用报错，就直接针对报错简短说明"
+                                 "或者问清楚就好，不要重新展示计划。真正要重新展示计划，必须等用户发"
+                                 "来新的一条消息之后，在那之后的回复里才能调用。",
+                    }
+                else:
+                    pending_action = "plan_confirm"
+                    advanced_this_turn = True
+                    result = {"ok": True}
 
             elif call["name"] == "ask_add_to_plan":
-                if history_action_type != "plan_confirm":
+                if advanced_this_turn or history_action_type != "plan_confirm":
                     result = {
                         "error": "顺序不对：还没有先调用 present_plan_for_confirmation 展示计划并"
                                  "得到用户在上一轮回复里明确表示满意，不能跳过这一步直接问是否加入，"
@@ -337,10 +356,11 @@ def chat_reply_stream(conn, history: list[dict]):
                     }
                 else:
                     pending_action = "add_confirm"
+                    advanced_this_turn = True
                     result = {"ok": True}
 
             elif call["name"] == "create_task":
-                if history_action_type != "add_confirm":
+                if advanced_this_turn or history_action_type != "add_confirm":
                     result = {
                         "error": "顺序不对：还没有走完'展示计划→满意确认→询问是否加入'这个流程"
                                  "（用户还没有在单独一条新消息里明确说'加入'），不能直接创建任务，"
@@ -348,6 +368,7 @@ def chat_reply_stream(conn, history: list[dict]):
                                  "说'加入'之后，才能在那之后的回复里调用 create_task。",
                     }
                 else:
+                    advanced_this_turn = True
                     try:
                         args = json.loads(call["arguments"] or "{}")
                     except json.JSONDecodeError:
