@@ -27,21 +27,28 @@ MODEL = "qwen-max"
 MAX_TOOL_ROUNDS = 5
 MAX_TOKENS = 2000
 
-# How long a trailing chunk of text has to be, and how many times it has to
-# recur in the response so far, before we treat the model as stuck in a
-# decoding repetition loop and cut the round short. 36 chars is roughly
-# "这样可以吗？如果满意的话，要不要把这个加入计划表？" -- long enough that
-# ordinary phrasing doesn't trip it, short enough to catch a loop within one
-# or two repeats instead of letting it run to MAX_TOKENS.
-LOOP_TAIL_LEN = 36
-LOOP_TAIL_REPEATS = 2
+# Candidate repeating-unit lengths checked by _is_repeating, in characters.
+MIN_LOOP_UNIT = 20
+MAX_LOOP_UNIT = 200
 
 
 def _is_repeating(text: str) -> bool:
-    if len(text) < LOOP_TAIL_LEN * LOOP_TAIL_REPEATS:
-        return False
-    tail = text[-LOOP_TAIL_LEN:]
-    return text.count(tail) >= LOOP_TAIL_REPEATS
+    """True iff the tail of `text` is some block of at least MIN_LOOP_UNIT
+    characters immediately repeated back-to-back (...AA at the very end) --
+    the signature of a decoding repetition loop, where the model just keeps
+    re-emitting the same sentence with nothing new in between.
+
+    Deliberately NOT triggered by a phrase recurring earlier in the text
+    with real content in between -- a real multi-phase plan legitimately
+    reuses boilerplate like "频率：每周三次，每次一小时" in every section
+    (it's the user's actual stated availability), and that must not get cut
+    off just because the same short phrase appears more than once overall.
+    Only an immediate, contiguous repeat counts.
+    """
+    for unit in range(MIN_LOOP_UNIT, min(MAX_LOOP_UNIT, len(text) // 2) + 1):
+        if text[-2 * unit:-unit] == text[-unit:]:
+            return True
+    return False
 
 # Appended as the generator's very last yield when the model has signaled
 # (via the present_plan_for_confirmation / ask_add_to_plan tools below) that
