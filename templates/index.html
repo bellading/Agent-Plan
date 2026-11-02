@@ -73,6 +73,8 @@
   button.ghost:hover { background: rgba(0,0,0,0.06); color: var(--text); }
   button.danger { background: transparent; color: #a8503a; padding: 4px 10px; font-size: 16px; line-height: 1; }
   button.danger:hover { background: rgba(168, 80, 58, 0.12); }
+  button.stop-btn { background: #a8503a; }
+  button.stop-btn:hover { background: #8c4230; }
 
   select.high { background-color: var(--high); }
   select.med { background-color: var(--med); }
@@ -141,6 +143,17 @@
   .msg.user { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 4px; }
   .msg.assistant { align-self: flex-start; background: var(--card-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
   .msg-text { white-space: pre-wrap; }
+  .msg-text p { margin: 0 0 6px; }
+  .msg-text p:last-child { margin-bottom: 0; }
+  .msg-text h3, .msg-text h4, .msg-text h5, .msg-text h6 {
+    margin: 10px 0 4px; font-size: 1em; font-weight: 700; line-height: 1.4;
+  }
+  .msg-text h3:first-child, .msg-text h4:first-child { margin-top: 0; }
+  .msg-text ul { margin: 2px 0 8px; padding-left: 20px; }
+  .msg-text li { margin-bottom: 2px; }
+  .msg-text hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  .msg.user .msg-text hr { border-top-color: rgba(255,255,255,0.3); }
+  .msg-text strong { font-weight: 700; }
   .msg.streaming .msg-text::after {
     content: '▍'; display: inline-block; margin-left: 2px; color: var(--accent);
     animation: blink 0.9s step-start infinite;
@@ -242,6 +255,7 @@
     <div class="chat-input-row">
       <input id="chat-input" type="text" placeholder="说说你想做的事…">
       <button id="chat-send-btn">发送</button>
+      <button id="chat-stop-btn" class="stop-btn" style="display:none">停止</button>
     </div>
   </div>
 
@@ -359,6 +373,47 @@ function linkify(escapedText) {
     /(https?:\/\/[^\s<]+[^\s<.,;:!?'")\]])/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
   );
+}
+
+function inlineFormat(escapedLine) {
+  // bold, then links. Order matters: linkify only touches plain URL text,
+  // so running it after ** stripping won't catch URLs inside **bold** —
+  // acceptable since the AI doesn't bold links in practice.
+  return linkify(escapedLine.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>'));
+}
+
+function renderMarkdown(raw) {
+  // Covers the subset the AI actually produces: #### headers, **bold**,
+  // "- " bullet lists, "---" rules, paragraphs. Escapes first so this is
+  // just as safe as the plain esc()+linkify() path it replaces.
+  const lines = esc(raw).split('\n');
+  let html = '';
+  let inList = false;
+
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+
+  for (const line of lines) {
+    const header = line.match(/^(#{1,6})\s+(.*)$/);
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    const rule = line.match(/^-{3,}$/);
+
+    if (rule) {
+      closeList();
+      html += '<hr>';
+    } else if (header) {
+      closeList();
+      const level = Math.min(header[1].length + 2, 6); // keep headers modest inside a chat bubble
+      html += `<h${level}>${inlineFormat(header[2])}</h${level}>`;
+    } else if (bullet) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += `<li>${inlineFormat(bullet[1])}</li>`;
+    } else {
+      closeList();
+      html += line.trim() === '' ? '<br>' : `<p>${inlineFormat(line)}</p>`;
+    }
+  }
+  closeList();
+  return html;
 }
 
 function options(values, current, labels) {
@@ -672,7 +727,7 @@ function appendMessage(role, content, meta) {
 
   const textEl = document.createElement('div');
   textEl.className = 'msg-text';
-  textEl.innerHTML = linkify(esc(content));
+  textEl.innerHTML = renderMarkdown(content);
   div.appendChild(textEl);
 
   if (meta) div.appendChild(buildMetaRow(div, role, meta));
@@ -695,24 +750,32 @@ async function loadChatHistory() {
   }
 }
 
+let activeAbortController = null;
+
 async function sendChat(presetText) {
   const input = document.getElementById('chat-input');
   const btn = document.getElementById('chat-send-btn');
+  const stopBtn = document.getElementById('chat-stop-btn');
   const text = presetText !== undefined ? presetText : input.value.trim();
   if (!text) return;
 
   appendMessage('user', text);
   if (presetText === undefined) input.value = '';
   btn.disabled = true;
+  stopBtn.style.display = 'inline-block';
 
   const assistantDiv = appendMessage('assistant streaming', '…');
   const textEl = assistantDiv.querySelector('.msg-text');
+
+  const controller = new AbortController();
+  activeAbortController = controller;
 
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+      signal: controller.signal,
     });
 
     if (!res.ok) {
@@ -735,14 +798,14 @@ async function sendChat(presetText) {
       if (!started) { started = true; full = ''; }
       full += piece;
       const displayText = full.replace(ACTION_MARKER_RE, '');
-      textEl.innerHTML = linkify(esc(displayText));
+      textEl.innerHTML = renderMarkdown(displayText);
       scrollChatToBottom();
     }
 
     assistantDiv.classList.remove('streaming');
     const match = full.match(ACTION_MARKER_RE);
     const cleanText = full.replace(ACTION_MARKER_RE, '');
-    textEl.innerHTML = linkify(esc(cleanText)) || '（没有收到回复）';
+    textEl.innerHTML = cleanText ? renderMarkdown(cleanText) : '（没有收到回复）';
     await loadChatHistory();
     if (match) {
       const lastMsg = chatMessages.querySelector('.msg.assistant:last-child');
@@ -750,14 +813,23 @@ async function sendChat(presetText) {
     }
   } catch (err) {
     assistantDiv.classList.remove('streaming');
-    textEl.textContent = '网络出错了，稍后再试试';
+    if (err.name === 'AbortError') {
+      textEl.innerHTML += '<br><em style="opacity:.6">（已停止）</em>';
+    } else {
+      textEl.textContent = '网络出错了，稍后再试试';
+    }
   } finally {
+    activeAbortController = null;
     btn.disabled = false;
+    stopBtn.style.display = 'none';
     input.focus();
   }
 }
 
 document.getElementById('chat-send-btn').addEventListener('click', () => sendChat());
+document.getElementById('chat-stop-btn').addEventListener('click', () => {
+  if (activeAbortController) activeAbortController.abort();
+});
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });

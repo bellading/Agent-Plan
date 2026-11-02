@@ -285,7 +285,6 @@ def chat_reply_stream(conn, history: list[dict]):
             delta = chunk.choices[0].delta
             if getattr(delta, "content", None):
                 content_parts.append(delta.content)
-                yield delta.content
             for tc in getattr(delta, "tool_calls", None) or []:
                 entry = tool_calls_acc.setdefault(tc.index, {"id": None, "name": None, "arguments": ""})
                 if tc.id:
@@ -296,6 +295,16 @@ def chat_reply_stream(conn, history: list[dict]):
                     entry["arguments"] += tc.function.arguments
 
         if not tool_calls_acc:
+            # Genuinely the final round (no tool call) — only now do we know
+            # this round's content is the real answer, not throwaway preamble
+            # the model wrote in the same round as deciding to call a tool
+            # (that does happen, and yielding content live before knowing
+            # this caused the plan to be shown once as preamble and again
+            # when the model re-described it per present_plan_for_confirmation's
+            # instructions). Replaying the original chunks keeps the
+            # streamed feel instead of dumping it as one block.
+            for part in content_parts:
+                yield part
             if pending_action:
                 yield f"\n[[ACTION:{pending_action}]]"
             return
