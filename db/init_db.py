@@ -39,6 +39,7 @@ def init_db(reset: bool = False, seed: bool = True) -> None:
     try:
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         _ensure_column(conn, "chat_messages", "feedback", "feedback TEXT")
+        _ensure_column(conn, "chat_messages", "action_type", "action_type TEXT")
         if seed:
             row_count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             if row_count == 0:

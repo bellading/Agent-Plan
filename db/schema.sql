@@ -28,12 +28,17 @@ CREATE TABLE IF NOT EXISTS user_profile (
 );
 
 -- AI问答 conversation history, so the chat view survives a page reload.
+-- action_type tags an assistant row with which confirmation step it was
+-- ('plan_confirm' or 'add_confirm'), so chat_reply_stream can enforce the
+-- satisfaction-before-add order in code instead of trusting the model to
+-- remember it.
 CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL DEFAULT 'bella',
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
     feedback TEXT CHECK (feedback IN ('up', 'down')),
+    action_type TEXT CHECK (action_type IN ('plan_confirm', 'add_confirm')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

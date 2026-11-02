@@ -157,14 +157,23 @@ def chat():
         finally:
             # strip the trailing [[ACTION:...]] marker before persisting —
             # it's a live UI signal for the just-streamed response, not
-            # something that belongs in the saved conversation text.
+            # something that belongs in the saved conversation text. The
+            # captured group is kept as action_type so chat_reply_stream can
+            # enforce plan_confirm -> add_confirm -> create_task ordering on
+            # the *next* turn without re-parsing stored text.
             raw_reply = "".join(reply_parts)
-            reply_text = re.sub(r"\n?\[\[ACTION:\w+\]\]\s*$", "", raw_reply)
+            match = re.search(llm.ACTION_MARKER_RE, raw_reply)
+            action_type = match.group(1) if match else None
+            reply_text = re.sub(r"\n?" + llm.ACTION_MARKER_RE + r"\s*$", "", raw_reply)
             now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
-                "INSERT INTO chat_messages (role, content, created_at) VALUES "
-                "('user', ?, ?), ('assistant', ?, ?)",
-                (text, now_str, reply_text, now_str),
+                "INSERT INTO chat_messages (role, content, created_at) VALUES ('user', ?, ?)",
+                (text, now_str),
+            )
+            conn.execute(
+                "INSERT INTO chat_messages (role, content, action_type, created_at) "
+                "VALUES ('assistant', ?, ?, ?)",
+                (reply_text, action_type, now_str),
             )
             conn.commit()
             conn.close()

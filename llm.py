@@ -32,7 +32,6 @@ MAX_TOOL_ROUNDS = 5
 # Emitted by our own code, never by the model's free text, so it's a
 # reliable marker — app.py strips it before persisting chat history.
 ACTION_MARKER_RE = r"\[\[ACTION:(plan_confirm|add_confirm)\]\]"
-SIGNALING_TOOLS = {"present_plan_for_confirmation", "ask_add_to_plan"}
 
 VALID_LEVELS = {"high", "med", "low"}
 VALID_TYPES = {"single", "goal"}
@@ -232,6 +231,13 @@ def _execute_tool(conn, name: str, args: dict, categories: list[str]) -> dict:
         return {"error": str(exc)}
 
 
+def _last_action_type(conn) -> str | None:
+    row = conn.execute(
+        "SELECT action_type FROM chat_messages WHERE role = 'assistant' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return row["action_type"] if row else None
+
+
 def chat_reply_stream(conn, history: list[dict]):
     """Generator yielding the assistant's reply text as it streams in.
 
@@ -240,6 +246,14 @@ def chat_reply_stream(conn, history: list[dict]):
     create/update/delete/list tasks) are executed silently and never
     yielded — only the final natural-language answer streams out, so the
     caller can join everything yielded to get the complete reply text.
+
+    The plan-confirm -> add-confirm -> create_task order is enforced here,
+    not just requested in the prompt: ask_add_to_plan is rejected unless the
+    most recent assistant turn was a plan_confirm, and create_task is
+    rejected unless it was an add_confirm. A rejection comes back as a tool
+    error the model can react to (e.g. call present_plan_for_confirmation
+    properly) rather than silently letting it skip straight to creating
+    something the user never actually confirmed.
     """
     api_key = _api_key()
     if not api_key:
@@ -253,6 +267,7 @@ def chat_reply_stream(conn, history: list[dict]):
     tools = _build_tools(context["categories"])
     messages = [{"role": "system", "content": system_prompt}, *history]
     pending_action = None
+    last_action_type = _last_action_type(conn)
 
     for _ in range(MAX_TOOL_ROUNDS):
         stream = client.chat.completions.create(
@@ -299,15 +314,46 @@ def chat_reply_stream(conn, history: list[dict]):
             ],
         })
         for call in ordered_calls:
-            if call["name"] in SIGNALING_TOOLS:
-                pending_action = "plan_confirm" if call["name"] == "present_plan_for_confirmation" else "add_confirm"
+            if call["name"] == "present_plan_for_confirmation":
+                pending_action = "plan_confirm"
+                last_action_type = "plan_confirm"
                 result = {"ok": True}
+
+            elif call["name"] == "ask_add_to_plan":
+                if last_action_type != "plan_confirm":
+                    result = {
+                        "error": "顺序不对：还没有先调用 present_plan_for_confirmation 展示计划并"
+                                 "得到满意确认，不能跳过这一步直接问是否加入。请先调用 "
+                                 "present_plan_for_confirmation 把计划讲给用户听。",
+                    }
+                else:
+                    pending_action = "add_confirm"
+                    last_action_type = "add_confirm"
+                    result = {"ok": True}
+
+            elif call["name"] == "create_task":
+                if last_action_type != "add_confirm":
+                    result = {
+                        "error": "顺序不对：还没有走完'展示计划→满意确认→询问是否加入'这个流程"
+                                 "（用户还没有明确说'加入'），不能直接创建任务。请先调用 "
+                                 "present_plan_for_confirmation 展示计划。",
+                    }
+                else:
+                    try:
+                        args = json.loads(call["arguments"] or "{}")
+                    except json.JSONDecodeError:
+                        args = {}
+                    result = _execute_tool(conn, "create_task", args, context["categories"])
+                    if result.get("ok"):
+                        last_action_type = None  # flow complete, ready for a new task next time
+
             else:
                 try:
                     args = json.loads(call["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
                 result = _execute_tool(conn, call["name"], args, context["categories"])
+
             messages.append({
                 "role": "tool",
                 "tool_call_id": call["id"],
