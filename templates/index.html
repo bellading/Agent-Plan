@@ -156,6 +156,16 @@
   .meta-btn:hover { opacity: 1; background: rgba(0,0,0,0.08); }
   .msg.user .meta-btn:hover { background: rgba(255,255,255,0.18); }
   .feedback-btn.active { opacity: 1; background: rgba(181, 121, 63, 0.18); }
+  .msg-text a { color: var(--accent); text-decoration: underline; word-break: break-all; }
+  .msg.user .msg-text a { color: #fff; text-decoration-color: rgba(255,255,255,0.6); }
+  .msg-choices { display: flex; gap: 8px; margin-top: 8px; }
+  .choice-btn {
+    padding: 6px 16px; border-radius: 16px; border: 1.5px solid var(--border-strong);
+    background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .choice-btn:hover { border-color: var(--accent); background: rgba(181, 121, 63, 0.1); }
+  .choice-btn:disabled { opacity: 0.5; cursor: default; }
+  .choice-btn.chosen { background: var(--accent); color: white; border-color: var(--accent); }
   .chat-input-row { display: flex; gap: 10px; padding: 16px 28px; border-top: 1px solid var(--border); }
   .chat-input-row input[type=text] { flex: 1; padding: 11px 14px; font-size: 14px; }
 
@@ -340,6 +350,15 @@ function esc(v) {
   return (v ?? '').toString()
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+
+function linkify(escapedText) {
+  // escapedText must already be HTML-escaped (see esc()) — this only
+  // wraps plain http(s) URLs in a real <a>, nothing else touches markup.
+  return escapedText.replace(
+    /(https?:\/\/[^\s<]+[^\s<.,;:!?'")\]])/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
 }
 
 function options(values, current, labels) {
@@ -621,13 +640,39 @@ function buildMetaRow(msgDiv, role, meta) {
   return row;
 }
 
+const ACTION_MARKER_RE = /\n?\[\[ACTION:(plan_confirm|add_confirm)\]\]\s*$/;
+
+function renderChoiceButtons(msgDiv, action) {
+  const labels = action === 'plan_confirm' ? ['满意', '不满意'] : ['加入', '不加入'];
+  const row = document.createElement('div');
+  row.className = 'msg-choices';
+
+  const buttons = labels.map(label => {
+    const btn = document.createElement('button');
+    btn.className = 'choice-btn';
+    btn.textContent = label;
+    row.appendChild(btn);
+    return btn;
+  });
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      buttons.forEach(b => { b.disabled = true; });
+      btn.classList.add('chosen');
+      sendChat(btn.textContent);
+    });
+  });
+
+  msgDiv.appendChild(row);
+}
+
 function appendMessage(role, content, meta) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
 
   const textEl = document.createElement('div');
   textEl.className = 'msg-text';
-  textEl.textContent = content;
+  textEl.innerHTML = linkify(esc(content));
   div.appendChild(textEl);
 
   if (meta) div.appendChild(buildMetaRow(div, role, meta));
@@ -650,14 +695,14 @@ async function loadChatHistory() {
   }
 }
 
-async function sendChat() {
+async function sendChat(presetText) {
   const input = document.getElementById('chat-input');
   const btn = document.getElementById('chat-send-btn');
-  const text = input.value.trim();
+  const text = presetText !== undefined ? presetText : input.value.trim();
   if (!text) return;
 
   appendMessage('user', text);
-  input.value = '';
+  if (presetText === undefined) input.value = '';
   btn.disabled = true;
 
   const assistantDiv = appendMessage('assistant streaming', '…');
@@ -689,13 +734,20 @@ async function sendChat() {
       if (!piece) continue;
       if (!started) { started = true; full = ''; }
       full += piece;
-      textEl.textContent = full;
+      const displayText = full.replace(ACTION_MARKER_RE, '');
+      textEl.innerHTML = linkify(esc(displayText));
       scrollChatToBottom();
     }
 
     assistantDiv.classList.remove('streaming');
-    if (!full) textEl.textContent = '（没有收到回复）';
+    const match = full.match(ACTION_MARKER_RE);
+    const cleanText = full.replace(ACTION_MARKER_RE, '');
+    textEl.innerHTML = linkify(esc(cleanText)) || '（没有收到回复）';
     await loadChatHistory();
+    if (match) {
+      const lastMsg = chatMessages.querySelector('.msg.assistant:last-child');
+      if (lastMsg) renderChoiceButtons(lastMsg, match[1]);
+    }
   } catch (err) {
     assistantDiv.classList.remove('streaming');
     textEl.textContent = '网络出错了，稍后再试试';
@@ -705,7 +757,7 @@ async function sendChat() {
   }
 }
 
-document.getElementById('chat-send-btn').addEventListener('click', sendChat);
+document.getElementById('chat-send-btn').addEventListener('click', () => sendChat());
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });

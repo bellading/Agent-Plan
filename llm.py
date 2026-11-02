@@ -26,6 +26,14 @@ BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 MODEL = "qwen-plus"
 MAX_TOOL_ROUNDS = 5
 
+# Appended as the generator's very last yield when the model has signaled
+# (via the present_plan_for_confirmation / ask_add_to_plan tools below) that
+# the frontend should show a pair of choice buttons after this message.
+# Emitted by our own code, never by the model's free text, so it's a
+# reliable marker — app.py strips it before persisting chat history.
+ACTION_MARKER_RE = r"\[\[ACTION:(plan_confirm|add_confirm)\]\]"
+SIGNALING_TOOLS = {"present_plan_for_confirmation", "ask_add_to_plan"}
+
 VALID_LEVELS = {"high", "med", "low"}
 VALID_TYPES = {"single", "goal"}
 VALID_ACTIONS = {"now", "schedule", "routine", "drop"}
@@ -94,6 +102,29 @@ def _build_tools(categories: list[str]) -> list[dict]:
             "function": {
                 "name": "list_open_tasks",
                 "description": "查看当前所有未完成任务（含 id、标题、分类等），用于修改/删除前定位任务",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "present_plan_for_confirmation",
+                "description": (
+                    "你已经整理出一份完整、具体的计划（可以是简单一件事，也可以是目标型的详细计划），"
+                    "准备讲给用户听并询问她满不满意时调用这个工具（不需要参数）。调用后，紧接着在同一轮回复里"
+                    "用自然语言把完整计划讲清楚。注意：这一步绝不能同时调用 create_task，要等用户确认。"
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "ask_add_to_plan",
+                "description": (
+                    "用户已经明确表示对计划满意之后，你要询问'要不要把这个加入计划表'时调用这个工具"
+                    "（不需要参数），然后在同一轮回复里用自然语言问她。"
+                ),
                 "parameters": {"type": "object", "properties": {}},
             },
         },
@@ -221,6 +252,7 @@ def chat_reply_stream(conn, history: list[dict]):
     system_prompt = _load_chat_prompt(context)
     tools = _build_tools(context["categories"])
     messages = [{"role": "system", "content": system_prompt}, *history]
+    pending_action = None
 
     for _ in range(MAX_TOOL_ROUNDS):
         stream = client.chat.completions.create(
@@ -248,6 +280,8 @@ def chat_reply_stream(conn, history: list[dict]):
                     entry["arguments"] += tc.function.arguments
 
         if not tool_calls_acc:
+            if pending_action:
+                yield f"\n[[ACTION:{pending_action}]]"
             return
 
         ordered_calls = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
@@ -264,11 +298,15 @@ def chat_reply_stream(conn, history: list[dict]):
             ],
         })
         for call in ordered_calls:
-            try:
-                args = json.loads(call["arguments"] or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            result = _execute_tool(conn, call["name"], args, context["categories"])
+            if call["name"] in SIGNALING_TOOLS:
+                pending_action = "plan_confirm" if call["name"] == "present_plan_for_confirmation" else "add_confirm"
+                result = {"ok": True}
+            else:
+                try:
+                    args = json.loads(call["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                result = _execute_tool(conn, call["name"], args, context["categories"])
             messages.append({
                 "role": "tool",
                 "tool_call_id": call["id"],

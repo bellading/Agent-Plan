@@ -1,5 +1,6 @@
 """AgentPlan v2: two-view web app (AI 问答 chat + 计划列表 by category)."""
 
+import re
 import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -154,7 +155,11 @@ def chat():
             reply_parts.append(error_text)
             yield error_text
         finally:
-            reply_text = "".join(reply_parts)
+            # strip the trailing [[ACTION:...]] marker before persisting —
+            # it's a live UI signal for the just-streamed response, not
+            # something that belongs in the saved conversation text.
+            raw_reply = "".join(reply_parts)
+            reply_text = re.sub(r"\n?\[\[ACTION:\w+\]\]\s*$", "", raw_reply)
             now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
                 "INSERT INTO chat_messages (role, content, created_at) VALUES "
