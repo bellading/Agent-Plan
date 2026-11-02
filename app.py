@@ -17,6 +17,12 @@ TZ = ZoneInfo("Asia/Shanghai")
 app = Flask(__name__)
 app.secret_key = auth.get_flask_secret_key()
 
+# Runs on import, not just under `python app.py` -- a production WSGI
+# server (gunicorn app:app) imports this module without ever reaching the
+# __main__ block below, so the schema/migrations must be ready before the
+# first request can possibly arrive.
+init_db(seed=False)
+
 # Paths reachable without being logged in. Everything else -- every page and
 # every /api/* route -- is gated by the before_request hook below, so a
 # stray fetch() from the frontend can never slip through un-authenticated.
@@ -316,5 +322,4 @@ def chat():
 
 
 if __name__ == "__main__":
-    init_db(seed=False)
     app.run(debug=True, port=5000)

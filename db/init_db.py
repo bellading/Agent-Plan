@@ -1,11 +1,16 @@
 """Create (or reset) the AgentPlan SQLite database from schema.sql + seed.sql."""
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
 DB_DIR = Path(__file__).parent
-DB_PATH = DB_DIR / "agent_plan.db"
+# AGENTPLAN_DB_PATH lets a deployment point the database at a persistent
+# volume (e.g. Railway/Render mount it outside the app's own ephemeral
+# filesystem) instead of living inside the repo checkout, which gets wiped
+# on every redeploy. Defaults to the local-dev path when unset.
+DB_PATH = Path(os.environ["AGENTPLAN_DB_PATH"]) if os.environ.get("AGENTPLAN_DB_PATH") else DB_DIR / "agent_plan.db"
 SCHEMA_PATH = DB_DIR / "schema.sql"
 SEED_PATH = DB_DIR / "seed.sql"
 

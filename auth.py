@@ -6,6 +6,7 @@ value (not per-user) -- that's app configuration, not account data, so it
 doesn't belong in the users table.
 """
 
+import os
 import secrets as secrets_module
 import sqlite3
 from pathlib import Path
@@ -44,10 +45,18 @@ def get_username(conn: sqlite3.Connection, user_id: int) -> str | None:
 
 
 def get_flask_secret_key() -> str:
-    """A random key persisted to disk so Flask's signed session cookie stays
-    valid across restarts instead of logging everyone out every time the
-    server restarts.
+    """Picks the key Flask uses to sign session cookies, in order:
+    1. FLASK_SECRET_KEY env var, if set -- the right choice on a host whose
+       filesystem doesn't persist across redeploys (e.g. a plain Railway/
+       Render service without a mounted volume), since otherwise a redeploy
+       would silently generate a new key and log everyone out.
+    2. A key persisted to .secrets/flask_secret_key.txt, generating one on
+       first run -- fine for local use, or a deployment with persistent
+       storage mounted at the app directory.
     """
+    env_key = os.environ.get("FLASK_SECRET_KEY")
+    if env_key:
+        return env_key
     SECRETS_DIR.mkdir(exist_ok=True)
     if SECRET_KEY_FILE.exists():
         return SECRET_KEY_FILE.read_text(encoding="utf-8").strip()
