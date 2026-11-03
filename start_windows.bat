@@ -1,12 +1,11 @@
 @echo off
-REM Double-click this file on Windows to start AgentPlan (web page + reminder scheduler).
+REM Double-click this file on Windows to start AgentPlan (web page + reminder
+REM scheduler, which runs as a background thread inside app.py -- no
+REM separate process to start for it).
 cd /d "%~dp0"
 
 echo Setting up database (first run only)...
 python db\init_db.py
-
-echo Starting reminder scheduler (minimized)...
-start /min "AgentPlan Scheduler" cmd /k python scheduler.py
 
 echo Starting web page (minimized)...
 start /min "AgentPlan Web" cmd /k python app.py
