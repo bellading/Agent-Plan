@@ -14,11 +14,16 @@ import json
 import os
 import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from openai import OpenAI
 
 import tasks_repo
+
+TZ = ZoneInfo("Asia/Shanghai")
+_WEEKDAY_CN = ["一", "二", "三", "四", "五", "六", "日"]
 
 CHAT_PROMPT_PATH = Path(__file__).parent / "prompts" / "chat_prompt.md"
 SECRET_FILE = Path(__file__).parent / ".secrets" / "qwen_api_key.txt"
@@ -177,6 +182,7 @@ def _load_chat_prompt(context: dict) -> str:
     template = match.group(1)
     return (
         template
+        .replace("{{today}}", context["today"])
         .replace("{{focus}}", context["focus"])
         .replace("{{availability}}", context["availability"])
         .replace("{{open_count}}", str(context["open_count"]))
@@ -197,7 +203,11 @@ def get_user_context(conn, owner_id: int) -> dict:
     open_summary = "、".join(r["title"] for r in open_rows[:10]) or "无"
     categories = tasks_repo.list_categories(conn, owner_id)
 
+    now = datetime.now(TZ)
+    today = f"{now:%Y-%m-%d} 星期{_WEEKDAY_CN[now.weekday()]}"
+
     return {
+        "today": today,
         "focus": focus,
         "availability": availability,
         "open_count": open_count,
@@ -307,31 +317,38 @@ def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int)
     # state the user's own prior turn actually established, not state this
     # turn just invented a moment ago.
     history_action_type = _last_action_type(conn, conversation_id)
-    # True once ANY of the three confirmation-flow tools has been called
-    # (successfully or not) during THIS turn. Blocks every further
-    # confirmation-flow call in the same turn, independent of
+    # True once present_plan_for_confirmation or ask_add_to_plan has been
+    # called (successfully or not) during THIS turn. Blocks every further
+    # call to EITHER of those two in the same turn, independent of
     # history_action_type — this is what stops the model from re-presenting
     # the plan twice in one reply (history_action_type alone can't catch
     # that: calling present_plan_for_confirmation doesn't change it), and
     # also stops it from riding a stale plan_confirm/add_confirm left over
     # from an earlier, abandoned turn straight through to the next step
-    # without the user ever actually replying in between.
-    advanced_this_turn = False
+    # without the user ever actually replying in between. create_task is
+    # deliberately NOT gated by this flag (see below) -- a confirmed plan
+    # can legitimately contain several distinct tasks, each needing its own
+    # create_task call in the same "加入" turn.
+    stage_locked = False
+    # True once there's a reason to stop handing the model any tools for the
+    # rest of this turn: a present_plan_for_confirmation/ask_add_to_plan
+    # call (success or rejection) always sets it, since the model should
+    # only be writing closing text after either of those, never calling
+    # another tool in the same turn. A FAILED create_task sets it too, to
+    # stop a retry loop (see the comment below). A SUCCESSFUL create_task
+    # does NOT set it, so the model stays free to call it again for the
+    # plan's other tasks. Without that, a rejected call wouldn't make the
+    # model give up — it would just retry the same call next round, and
+    # since each retry re-narrates the question first, that's what turns
+    # into the same sentence repeating itself over and over until
+    # MAX_TOOL_ROUNDS is hit.
+    withhold_tools = False
 
     for _ in range(MAX_TOOL_ROUNDS):
-        # Once a confirmation-flow step has happened this turn, stop handing
-        # the model any tools at all for the rest of the reply. Otherwise a
-        # rejected call (see advanced_this_turn below) doesn't make the
-        # model give up — it just retries the same call next round, and
-        # since each retry re-narrates the question first, that's what
-        # turns into the same sentence repeating itself over and over until
-        # MAX_TOOL_ROUNDS is hit. With no tools offered, it can only write
-        # the closing text and stop, which is all it should be doing anyway
-        # once a step has fired.
         stream = client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            tools=None if advanced_this_turn else tools,
+            tools=None if withhold_tools else tools,
             stream=True,
             temperature=0.2,
             max_tokens=MAX_TOKENS,
@@ -382,7 +399,7 @@ def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int)
         })
         for call in ordered_calls:
             if call["name"] == "present_plan_for_confirmation":
-                if advanced_this_turn:
+                if stage_locked:
                     result = {
                         "error": "这次回复里已经调用过确认流程的工具了，不要再重复调用、也不要把计划"
                                  "再完整写一遍——如果是因为上一个工具调用报错，就直接针对报错简短说明"
@@ -391,22 +408,12 @@ def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int)
                     }
                 else:
                     pending_action = "plan_confirm"
-                    advanced_this_turn = True
                     result = {"ok": True}
+                stage_locked = True
+                withhold_tools = True
 
             elif call["name"] == "ask_add_to_plan":
-                if advanced_this_turn or history_action_type != "plan_confirm":
-                    # Setting advanced_this_turn here too (not just on
-                    # success below) matters just as much as the success
-                    # case: without it, tools stay offered for the rest of
-                    # this turn after a rejection, and the model either
-                    # retries the same blocked call or goes on to call
-                    # something else unpredictably in a later round of the
-                    # SAME turn -- which is how a stray plan_confirm/
-                    # add_confirm marker could end up attached to a later,
-                    # unrelated message (e.g. surviving all the way to a
-                    # create_task success reply).
-                    advanced_this_turn = True
+                if stage_locked or history_action_type != "plan_confirm":
                     result = {
                         "error": "顺序不对：还没有先调用 present_plan_for_confirmation 展示计划并"
                                  "得到用户在上一轮回复里明确表示满意，不能跳过这一步直接问是否加入，"
@@ -416,25 +423,31 @@ def chat_reply_stream(conn, history: list[dict], conversation_id, owner_id: int)
                     }
                 else:
                     pending_action = "add_confirm"
-                    advanced_this_turn = True
                     result = {"ok": True}
+                stage_locked = True
+                withhold_tools = True
 
             elif call["name"] == "create_task":
-                if advanced_this_turn or history_action_type != "add_confirm":
-                    advanced_this_turn = True  # see note in ask_add_to_plan above
+                if history_action_type != "add_confirm":
                     result = {
                         "error": "顺序不对：还没有走完'展示计划→满意确认→询问是否加入'这个流程"
                                  "（用户还没有在单独一条新消息里明确说'加入'），不能直接创建任务，"
                                  "也不能在同一次回复里紧接着调用——必须等用户发来新的一条消息明确"
                                  "说'加入'之后，才能在那之后的回复里调用 create_task。",
                     }
+                    withhold_tools = True  # stop a retry loop on this kind of failure
                 else:
-                    advanced_this_turn = True
                     try:
                         args = json.loads(call["arguments"] or "{}")
                     except json.JSONDecodeError:
                         args = {}
                     result = _execute_tool(conn, "create_task", args, context["categories"], owner_id)
+                    # Deliberately NOT setting withhold_tools here: a
+                    # confirmed plan can contain several distinct tasks, and
+                    # each one needs its own create_task call in this same
+                    # "加入" turn -- blocking tools after the first success
+                    # would silently drop every task after the first.
+                    stage_locked = True  # but present_plan/ask_add still can't fire after this
 
             else:
                 try:
