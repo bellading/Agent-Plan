@@ -1,10 +1,10 @@
 # AgentPlan
 
-> 一个帮你**决定**、而不只是帮你**记住**的任务分诊 agent，多人可用。
+> 一个帮你**决定**和**记住**的任务分诊 agent，多人可用。
 
 ![status](https://img.shields.io/badge/status-building-orange) ![python](https://img.shields.io/badge/python-3.11+-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-信息太多、看到 A 又惦记 B、来回穿插，最后哪件都做不好——这个项目把"现在到底该做什么"从脑子里搬出来。你随手发一句话，它整理成任务、判断轻重缓急、到点提醒你，做完归档、没做完自动回流。现在支持多人各自注册账号使用，彼此数据完全隔离。
+信息太多、看到 A 又惦记 B、来回穿插，最后哪件都做不好——这个项目把"现在到底该做什么"从脑子里搬出来。随手发一句话，Agent便可以整理成任务、判断轻重缓急、到点提醒你，做完归档、没做完自动回流。现在支持多人各自注册账号使用，彼此数据完全隔离。
 
 ## 核心机制
 
