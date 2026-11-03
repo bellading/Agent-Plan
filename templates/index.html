@@ -956,6 +956,13 @@ async function sendChat(presetText) {
   const stopBtn = document.getElementById('chat-stop-btn');
   const text = presetText !== undefined ? presetText : input.value.trim();
   if (!text) return;
+  // Guards against a duplicate send while one is already in flight -- the
+  // send button disables itself below, but the Enter-key handler and the
+  // choice buttons both call sendChat() directly without checking that, so
+  // without this a second Enter press (or a choice-button click racing an
+  // in-flight request) could fire a second identical /api/chat call, each
+  // producing its own correct-but-duplicated reply.
+  if (activeAbortController) return;
 
   appendMessage('user', text);
   if (presetText === undefined) input.value = '';
